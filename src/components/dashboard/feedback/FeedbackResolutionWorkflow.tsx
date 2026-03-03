@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFeedback } from '@/contexts/FeedbackContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,8 +12,13 @@ import {
   AlertCircle,
   Flag,
   MessageSquare,
-  User
+  User,
+  Loader2
 } from 'lucide-react';
+import { userManagementService } from '@/services/userManagementService';
+
+/** Sentinel value for "Unassigned" - Radix Select does not allow value="" on items */
+const UNASSIGNED_VALUE = '__unassigned__';
 
 interface FeedbackResolutionWorkflowProps {
   submissionId: string;
@@ -30,9 +35,39 @@ export function FeedbackResolutionWorkflow({
 }: FeedbackResolutionWorkflowProps) {
   const [newStatus, setNewStatus] = useState('');
   const [resolutionNotes, setResolutionNotes] = useState('');
-  const [assignTo, setAssignTo] = useState(assignedTo || '');
-  
+  const [assignTo, setAssignTo] = useState(assignedTo && assignedTo.trim() ? assignedTo : UNASSIGNED_VALUE);
+  const [assigneeOptions, setAssigneeOptions] = useState<{ value: string; label: string }[]>([]);
+  const [assigneesLoading, setAssigneesLoading] = useState(true);
+
   const { updateSubmissionStatus, addNote } = useFeedback();
+
+  useEffect(() => {
+    setAssignTo(assignedTo && assignedTo.trim() ? assignedTo : UNASSIGNED_VALUE);
+  }, [assignedTo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAssignees() {
+      setAssigneesLoading(true);
+      try {
+        const baseOptions = [{ value: UNASSIGNED_VALUE, label: 'Unassigned' }];
+        // Fetch all users in the system (requires users:read)
+        const res = await userManagementService.getUsers({ limit: 500, isActive: true });
+        const users = (res.users || []).map((u) => ({
+          value: u.id,
+          label: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || u.id,
+        }));
+        if (!cancelled) setAssigneeOptions([...baseOptions, ...users]);
+      } catch (err) {
+        console.warn('Failed to load assignable users for feedback:', err);
+        if (!cancelled) setAssigneeOptions([{ value: UNASSIGNED_VALUE, label: 'Unassigned' }]);
+      } finally {
+        if (!cancelled) setAssigneesLoading(false);
+      }
+    }
+    loadAssignees();
+    return () => { cancelled = true; };
+  }, []);
 
   const statusOptions = [
     { value: 'SUBMITTED', label: 'Submitted', icon: Clock, color: 'secondary' },
@@ -43,13 +78,9 @@ export function FeedbackResolutionWorkflow({
     { value: 'ESCALATED', label: 'Escalated', icon: Flag, color: 'destructive' }
   ];
 
-  const assigneeOptions = [
-    { value: 'sarah-wilson', label: 'Sarah Wilson - Infrastructure Team' },
-    { value: 'mike-johnson', label: 'Mike Johnson - Health Services' },
-    { value: 'emergency-team', label: 'Emergency Response Team' },
-    { value: 'admin-team', label: 'Administration Team' },
-    { value: 'unassigned', label: 'Unassigned' }
-  ];
+  const assignedToLabel = assignedTo && assignedTo !== UNASSIGNED_VALUE
+    ? (assigneeOptions.find((o) => o.value === assignedTo)?.label ?? assignedTo)
+    : null;
 
   const getStatusInfo = (status: string) => {
     return statusOptions.find(option => option.value === status) || statusOptions[0];
@@ -61,7 +92,7 @@ export function FeedbackResolutionWorkflow({
     if (newStatus) {
       try {
         // Update status via context
-        await updateSubmissionStatus(submissionId, newStatus, assignTo || undefined);
+        await updateSubmissionStatus(submissionId, newStatus, assignTo === UNASSIGNED_VALUE ? undefined : assignTo);
         
         // Add note if provided
         if (resolutionNotes.trim()) {
@@ -74,7 +105,7 @@ export function FeedbackResolutionWorkflow({
         }
         
         // Call parent callback
-        onStatusUpdate(newStatus, resolutionNotes, assignTo);
+        onStatusUpdate(newStatus, resolutionNotes, assignTo === UNASSIGNED_VALUE ? undefined : assignTo);
         
         // Reset form
         setNewStatus('');
@@ -107,10 +138,10 @@ export function FeedbackResolutionWorkflow({
               <Badge variant={currentStatusInfo.color as any}>
                 {currentStatusInfo.label}
               </Badge>
-              {assignedTo && (
+              {(assignedToLabel || (assignedTo && assignedTo !== UNASSIGNED_VALUE)) && (
                 <div className="flex items-center gap-2 text-sm text-gray-600">
                   <User className="w-4 h-4" />
-                  Assigned to: {assignedTo}
+                  Assigned to: {assignedToLabel ?? assignedTo}
                 </div>
               )}
             </div>
@@ -148,9 +179,16 @@ export function FeedbackResolutionWorkflow({
             </div>
             <div>
               <label className="text-sm font-medium">Assign To</label>
-              <Select value={assignTo} onValueChange={setAssignTo}>
+              <Select value={assignTo} onValueChange={setAssignTo} disabled={assigneesLoading}>
                 <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Select assignee" />
+                  {assigneesLoading ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading users…
+                    </span>
+                  ) : (
+                    <SelectValue placeholder="Select assignee" />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   {assigneeOptions.map((option) => (

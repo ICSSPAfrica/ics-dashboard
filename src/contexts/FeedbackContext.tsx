@@ -132,8 +132,8 @@ export const FeedbackProvider: React.FC<FeedbackProviderProps> = ({
   ): Promise<FeedbackSubmission> => {
     try {
       const updateData: any = { status };
-      if (assignedTo) {
-        updateData.assignedTo = assignedTo;
+      if (assignedTo !== undefined) {
+        updateData.assignedTo = assignedTo || '';
       }
       
       const response = await feedbackApi.updateSubmissionStatus(id, updateData);

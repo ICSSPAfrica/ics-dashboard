@@ -237,12 +237,7 @@ export function FeedbackSubmissionDetail({ submissionId, onBack }: FeedbackSubmi
                 <span className="text-sm">Submitted: {new Date(displayData.submittedAt).toLocaleDateString()}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button size="sm">
-                <Flag className="w-4 h-4 mr-2" />
-                Escalate
-              </Button>
-            </div>
+         
           </div>
         </CardContent>
       </Card>
@@ -347,7 +342,6 @@ export function FeedbackSubmissionDetail({ submissionId, onBack }: FeedbackSubmi
                 assignedTo={displayData.assignedTo}
                 onStatusUpdate={(status, notes, assignTo) => {
                   console.log('Status update:', { status, notes, assignTo });
-                  // Here you would typically make an API call to update the status
                 }}
               />
             </div>

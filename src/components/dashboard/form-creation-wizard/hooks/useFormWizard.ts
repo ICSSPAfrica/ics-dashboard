@@ -186,9 +186,18 @@ export function useFormWizard(formId?: string) {
       // Load existing form for editing via API
       loadForm(currentProject.id, formId).then(existingForm => {
         if (existingForm) {
+          // Preserve section and question order (API may return in different order)
+          const sections = (existingForm.sections || [])
+            .slice()
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+            .map(s => ({
+              ...s,
+              questions: (s.questions || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+            }));
+          const formWithOrder = { ...existingForm, sections };
           setWizardState(prev => ({
             ...prev,
-            form: existingForm,
+            form: formWithOrder,
             hasUnsavedChanges: false,
           }));
         } else {

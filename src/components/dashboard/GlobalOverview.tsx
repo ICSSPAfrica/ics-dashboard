@@ -12,8 +12,8 @@ import { AreaChart } from '@/components/visualizations/AreaChart';
 import { BulletChart } from '@/components/visualizations/BulletChart';
 import { PieChart } from '@/components/visualizations/PieChart';
 import { Progress } from '@/components/ui/progress';
-import { Target, Activity, TrendingUp, ChevronRight, Calendar } from 'lucide-react';
-import { strategicPlanApi, StrategicPlan, StrategicGoal } from '@/lib/api/strategicPlanApi';
+import { Target, Activity, TrendingUp, ChevronRight, Calendar, Gauge } from 'lucide-react';
+import { strategicPlanApi, StrategicPlan, StrategicGoal, PlanKpi } from '@/lib/api/strategicPlanApi';
 import { toast } from 'sonner';
 
 // Helper functions
@@ -46,6 +46,7 @@ export function GlobalOverview() {
   const planIdFromUrl = searchParams.get('plan');
 
   const [goals, setGoals] = useState<StrategicGoal[]>([]);
+  const [planKpis, setPlanKpis] = useState<PlanKpi[]>([]);
   const [availablePlans, setAvailablePlans] = useState<Array<{id: string, title: string, startYear: number, endYear: number}>>([]);
   const [selectedPlanId, setSelectedPlanIdState] = useState<string | null>(planIdFromUrl || null);
   const [isLoading, setIsLoading] = useState(false);
@@ -64,34 +65,39 @@ export function GlobalOverview() {
     loadAllPlans();
   }, []);
 
-  // When selected plan changes, fetch that plan's data from the API
+  // When selected plan changes, fetch that plan's data and organisation-level KPIs from the API
   useEffect(() => {
     if (!selectedPlanId) {
       setGoals([]);
+      setPlanKpis([]);
       setHasData(false);
       return;
     }
     let cancelled = false;
     setIsLoading(true);
-    strategicPlanApi.getStrategicPlan(selectedPlanId)
-      .then((plan) => {
+    Promise.all([
+      strategicPlanApi.getStrategicPlan(selectedPlanId),
+      strategicPlanApi.getKpisByPlanId(selectedPlanId).catch(() => []),
+    ])
+      .then(([plan, kpisFromApi]) => {
         if (cancelled) return;
-        if (!plan?.goals || !Array.isArray(plan.goals)) {
-          setGoals([]);
-          setHasData(false);
-          return;
+        const goalsList = plan?.goals && Array.isArray(plan.goals) ? plan.goals : [];
+        const kpis = Array.isArray(plan?.kpis) && plan.kpis.length > 0 ? plan.kpis : (Array.isArray(kpisFromApi) ? kpisFromApi : []);
+        setGoals(goalsList);
+        setPlanKpis(kpis);
+        setHasData(goalsList.length > 0 || kpis.length > 0);
+        if (goalsList.length > 0) {
+          toast.success(`Loaded strategic plan: ${plan.title}`, {
+            description: `Period: ${plan.startYear}-${plan.endYear} | ${goalsList.length} objectives, ${kpis.length} organisation-level KPIs`,
+            duration: 3000,
+          });
         }
-        setGoals(plan.goals);
-        setHasData(true);
-        toast.success(`Loaded strategic plan: ${plan.title}`, {
-          description: `Period: ${plan.startYear}-${plan.endYear} | ${plan.goals.length} objectives loaded`,
-          duration: 3000,
-        });
       })
       .catch((error) => {
         if (cancelled) return;
         console.error('Error loading strategic plan:', error);
         setGoals([]);
+        setPlanKpis([]);
         setHasData(false);
         toast.error('Failed to load strategic plan data', {
           description: 'Please try selecting a different plan or contact support.',
@@ -181,14 +187,14 @@ export function GlobalOverview() {
             </div>
           </CardContent>
         </Card>
-        <h1 className="text-3xl font-bold text-foreground">Strategic Objectives</h1>
+        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
         <p className="text-muted-foreground">
-          Organisation-level objectives and strategic actions with linked project activities and KPIs
+          Strategic plan overview: objectives, strategic actions, activities, and organisation-level KPIs
         </p>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -236,9 +242,80 @@ export function GlobalOverview() {
             </div>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Organisation-level KPIs</p>
+                <p className="text-3xl font-bold text-foreground">{planKpis.length}</p>
+              </div>
+              <Gauge className="h-8 w-8 text-cyan-500" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Strategic Goals */}
+      {/* Organisation-level KPIs */}
+      {hasData && planKpis.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-foreground">Organisation-level KPIs</h2>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/dashboard/strategic-plan/kpis">Manage KPIs</Link>
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {planKpis.map((kpi) => {
+              const current = kpi.currentValue ?? 0;
+              const target = kpi.targetValue ?? 1;
+              const pct = target ? Math.min(100, Math.round((current / target) * 100)) : 0;
+              return (
+                <Card key={kpi.id} className="bg-muted/30">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold">
+                      {kpi.name || `KPI ${kpi.unit}`}
+                    </CardTitle>
+                    <CardDescription className="text-sm">
+                      {current.toLocaleString()} / {target.toLocaleString()} {kpi.unit}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {kpi.type === 'progressBar' && (
+                      <div className="w-full">
+                        <Progress value={pct} className="h-2" />
+                        <div className="mt-1 text-xs text-muted-foreground">{pct}%</div>
+                      </div>
+                    )}
+                    {kpi.type === 'bulletChart' && (
+                      <BulletChart
+                        current={current}
+                        target={target}
+                        title={kpi.name || ''}
+                        unit={kpi.unit}
+                        height={72}
+                      />
+                    )}
+                    {(kpi.type === 'radialGauge' || !kpi.type) && (
+                      <div className="flex justify-center">
+                        <RadialGauge
+                          value={pct}
+                          size={90}
+                          unit={kpi.unit}
+                          primaryColor="#06b6d4"
+                          max={100}
+                        />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Objectives */}
       <div className="space-y-6">
         <h2 className="text-2xl font-bold text-foreground">Objectives</h2>
         
@@ -251,7 +328,7 @@ export function GlobalOverview() {
               </div>
             </CardContent>
           </Card>
-        ) : !hasData || goals.length === 0 ? (
+        ) : !hasData ? (
           <Card>
             <CardContent className="p-12 text-center">
               <div className="flex flex-col items-center space-y-4">
@@ -260,9 +337,23 @@ export function GlobalOverview() {
                   <h3 className="text-lg font-semibold text-foreground">No Strategic Plan Data</h3>
                   <p className="text-muted-foreground">
                     {availablePlans.length === 0 
-                      ? "No strategic plans found in the database. Create a strategic plan to get started."
-                      : "Select a strategic plan from the dropdown above to view objectives and activities."
+                      ? "No strategic plans found. Create a strategic plan to get started."
+                      : "Select a strategic plan above to view objectives, strategic actions, activities, and organisation-level KPIs."
                     }
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : goals.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <div className="flex flex-col items-center space-y-4">
+                <Target className="h-12 w-12 text-muted-foreground" />
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">No Objectives Yet</h3>
+                  <p className="text-muted-foreground">
+                    This plan has no objectives. Add objectives and strategic actions in Edit Strategic Plan.
                   </p>
                 </div>
               </div>

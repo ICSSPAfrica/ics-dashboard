@@ -199,12 +199,14 @@ export function ProSidebar() {
               >
                 Manage Forms
               </MenuItem>
-              <MenuItem 
-                component={<Link to="/dashboard/feedback/submissions" onClick={handleCloseSidebar} />}
-                className="text-sm"
-              >
-                View Submissions
-              </MenuItem>
+              {permissionManager.hasPermission('feedback:read') && (
+                <MenuItem 
+                  component={<Link to="/dashboard/feedback/submissions" onClick={handleCloseSidebar} />}
+                  className="text-sm"
+                >
+                  View Submissions
+                </MenuItem>
+              )}
               <MenuItem 
                 component={<Link to="/dashboard/feedback/analytics" onClick={handleCloseSidebar} />}
                 className="text-sm"
