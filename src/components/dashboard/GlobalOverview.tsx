@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,43 +33,81 @@ const getPriorityColor = (priority: string) => {
 const getOverallProgress = (subgoals: any[]) => {
   if (subgoals.length === 0) return 0;
   const totalProgress = subgoals.reduce((sum, subgoal) => {
-    const currentValue = subgoal.kpi?.currentValue || subgoal.kpi?.value || 0;
-    const targetValue = subgoal.kpi?.targetValue || subgoal.kpi?.target || 1;
+    const kpi = subgoal.strategicKpi || subgoal.kpi;
+    const currentValue = kpi?.currentValue || kpi?.value || 0;
+    const targetValue = kpi?.targetValue || kpi?.target || 1;
     return sum + (currentValue / targetValue) * 100;
   }, 0);
   return Math.round(totalProgress / subgoals.length);
 };
 
 export function GlobalOverview() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const planIdFromUrl = searchParams.get('plan');
+
   const [goals, setGoals] = useState<StrategicGoal[]>([]);
-  const [allPlans, setAllPlans] = useState<StrategicPlan[]>([]);
   const [availablePlans, setAvailablePlans] = useState<Array<{id: string, title: string, startYear: number, endYear: number}>>([]);
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const [selectedPlanId, setSelectedPlanIdState] = useState<string | null>(planIdFromUrl || null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
+
+  const setSelectedPlanId = useCallback((id: string | null) => {
+    setSelectedPlanIdState(id);
+    if (id) {
+      setSearchParams({ plan: id }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  }, [setSearchParams]);
 
   useEffect(() => {
     loadAllPlans();
   }, []);
 
+  // When selected plan changes, fetch that plan's data from the API
   useEffect(() => {
-    if (selectedPlanId && allPlans.length > 0) {
-      const selectedPlan = allPlans.find(plan => plan.id === selectedPlanId);
-      if (selectedPlan) {
-        loadStrategicPlanFromData(selectedPlan);
-      }
-    } else {
-      // No plan selected or no plans available
+    if (!selectedPlanId) {
       setGoals([]);
       setHasData(false);
+      return;
     }
-  }, [selectedPlanId, allPlans]);
+    let cancelled = false;
+    setIsLoading(true);
+    strategicPlanApi.getStrategicPlan(selectedPlanId)
+      .then((plan) => {
+        if (cancelled) return;
+        if (!plan?.goals || !Array.isArray(plan.goals)) {
+          setGoals([]);
+          setHasData(false);
+          return;
+        }
+        setGoals(plan.goals);
+        setHasData(true);
+        toast.success(`Loaded strategic plan: ${plan.title}`, {
+          description: `Period: ${plan.startYear}-${plan.endYear} | ${plan.goals.length} objectives loaded`,
+          duration: 3000,
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Error loading strategic plan:', error);
+        setGoals([]);
+        setHasData(false);
+        toast.error('Failed to load strategic plan data', {
+          description: 'Please try selecting a different plan or contact support.',
+          duration: 4000,
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [selectedPlanId]);
 
   const loadAllPlans = async () => {
     try {
       const plans = await strategicPlanApi.getStrategicPlans();
       if (plans && Array.isArray(plans)) {
-        setAllPlans(plans);
         const planOptions = plans.map(plan => ({
           id: plan.id,
           title: plan.title,
@@ -77,45 +115,21 @@ export function GlobalOverview() {
           endYear: plan.endYear
         }));
         setAvailablePlans(planOptions);
-        
-        // Don't auto-select - let user choose explicitly
-        setSelectedPlanId(plans[0].id);
+        // Prefer plan from URL if it exists in the list; otherwise select first plan
+        const validIdFromUrl = planIdFromUrl && planOptions.some(p => p.id === planIdFromUrl);
+        setSelectedPlanId(validIdFromUrl ? planIdFromUrl : (plans[0]?.id ?? null));
       }
     } catch (error) {
       console.error('Error loading available plans:', error);
     }
   };
 
-  const loadStrategicPlanFromData = (plan: StrategicPlan) => {
-    setIsLoading(true);
-    try {
-      // Validate plan structure
-      if (!plan || !plan.goals || !Array.isArray(plan.goals)) {
-        throw new Error('Invalid strategic plan data structure');
-      }
-
-      // Use API data directly
-      setGoals(plan.goals);
-      console.log('Loaded goals:', goals);
-      setHasData(true);
-      
-      // Show success notification
-      toast.success(`Loaded strategic plan: ${plan.title}`, {
-        description: `Period: ${plan.startYear}-${plan.endYear} | ${plan.goals.length} goals loaded`,
-        duration: 3000,
-      });
-    } catch (error) {
-      console.error('Error processing strategic plan data:', error);
-      setGoals([]);
-      setHasData(false);
-      toast.error('Failed to load strategic plan data', {
-        description: 'Please try selecting a different plan or contact support.',
-        duration: 4000,
-      });
-    } finally {
-      setIsLoading(false);
+  // When plans load, sync selection from URL if not yet set
+  useEffect(() => {
+    if (availablePlans.length > 0 && planIdFromUrl && availablePlans.some(p => p.id === planIdFromUrl) && selectedPlanId !== planIdFromUrl) {
+      setSelectedPlanIdState(planIdFromUrl);
     }
-  };
+  }, [availablePlans, planIdFromUrl]);
 
   // Calculate summary statistics
   const totalSubgoals = goals.reduce((sum, goal) => sum + goal.subgoals.length, 0);
@@ -142,7 +156,7 @@ export function GlobalOverview() {
               <Calendar className="h-5 w-5" />
               <span>Strategic Plan Filter</span>
             </CardTitle>
-            <CardDescription>Select a strategic plan to view its goals and activities</CardDescription>
+            <CardDescription>Select a strategic plan to view its objectives and activities</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center space-x-4">
@@ -167,9 +181,9 @@ export function GlobalOverview() {
             </div>
           </CardContent>
         </Card>
-        <h1 className="text-3xl font-bold text-foreground">Organization Strategic Goals</h1>
+        <h1 className="text-3xl font-bold text-foreground">Strategic Objectives</h1>
         <p className="text-muted-foreground">
-          Strategic goals with linked project activities and key performance indicators
+          Organisation-level objectives and strategic actions with linked project activities and KPIs
         </p>
       </div>
 
@@ -179,7 +193,7 @@ export function GlobalOverview() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Strategic Goals</p>
+                <p className="text-sm font-medium text-muted-foreground">Objectives</p>
                 <p className="text-3xl font-bold text-foreground">{goals.length}</p>
               </div>
               <Target className="h-8 w-8 text-blue-500" />
@@ -191,7 +205,7 @@ export function GlobalOverview() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Sub-Goals</p>
+                <p className="text-sm font-medium text-muted-foreground">Strategic actions</p>
                 <p className="text-3xl font-bold text-foreground">{totalSubgoals}</p>
               </div>
               <TrendingUp className="h-8 w-8 text-green-500" />
@@ -226,7 +240,7 @@ export function GlobalOverview() {
 
       {/* Strategic Goals */}
       <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-foreground">Strategic Goals</h2>
+        <h2 className="text-2xl font-bold text-foreground">Objectives</h2>
         
         {isLoading ? (
           <Card>
@@ -247,7 +261,7 @@ export function GlobalOverview() {
                   <p className="text-muted-foreground">
                     {availablePlans.length === 0 
                       ? "No strategic plans found in the database. Create a strategic plan to get started."
-                      : "Select a strategic plan from the dropdown above to view goals and activities."
+                      : "Select a strategic plan from the dropdown above to view objectives and activities."
                     }
                   </p>
                 </div>
@@ -265,6 +279,7 @@ export function GlobalOverview() {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <CardTitle className="text-xl group-hover:text-blue-600 transition-colors">
+                        {goal.code && <span className="text-muted-foreground font-normal mr-2">{goal.code}</span>}
                         {goal.title}
                       </CardTitle>
                       <Badge className={getPriorityColor(goal.priority.toLowerCase())}>
@@ -276,7 +291,7 @@ export function GlobalOverview() {
                       <div className="flex items-center gap-2">
                         <Target className="w-4 h-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">
-                          {goal.subgoals.length} sub-goals
+                          {goal.subgoals.length} strategic actions
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -295,7 +310,7 @@ export function GlobalOverview() {
                   <div className="flex flex-col items-end gap-3">
                     <Link 
                       to={`/dashboard/goals/${goal.id}`}
-                      state={{ goal, goals }}
+                      state={{ goal, goals, selectedPlanId }}
                     >
                       <Button variant="outline" className="group-hover:bg-blue-50 group-hover:border-blue-200">
                         View Details
@@ -315,11 +330,12 @@ export function GlobalOverview() {
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
                           <CardTitle className="text-base font-semibold leading-tight">
+                            {subgoal.code && <span className="text-muted-foreground font-normal mr-1">{subgoal.code}</span>}
                             {subgoal.title}
                           </CardTitle>
                           <Link 
                             to={`/dashboard/goals/${goal.id}/subgoals/${subgoal.id}`}
-                            state={{ goal, goals }}
+                            state={{ goal, goals, selectedPlanId }}
                           >
                             <Button variant="ghost" size="sm">
                               <ChevronRight className="w-3 h-3" />
@@ -332,39 +348,47 @@ export function GlobalOverview() {
                             {subgoal.activityLinks.length} contributing activities
                           </span>
                         </div>
+                        {(subgoal.strategicKpi || subgoal.kpi)?.name && (
+                          <p className="text-xs text-muted-foreground mt-1">Organisation KPI: {(subgoal.strategicKpi || subgoal.kpi)?.name}</p>
+                        )}
                       </CardHeader>
                       <CardContent className="pt-0">
-                        {subgoal.kpi.type === 'radialGauge' && (
-                          <div className="flex justify-center">
-                            <RadialGauge 
-                              value={(subgoal.kpi.currentValue / subgoal.kpi.targetValue) * 100} 
-                              size={100} 
-                              unit={subgoal.kpi.unit} 
-                              primaryColor="#3B82F6"
-                              max={100}
+                        {(() => {
+                          const kpi = subgoal.strategicKpi || subgoal.kpi;
+                          if (!kpi) return null;
+                          if (kpi.type === 'radialGauge') return (
+                            <div className="flex justify-center">
+                              <RadialGauge 
+                                value={(kpi.currentValue / (kpi.targetValue || 1)) * 100} 
+                                size={100} 
+                                unit={kpi.unit} 
+                                primaryColor="#3B82F6"
+                                max={100}
+                              />
+                            </div>
+                          );
+                          if (kpi.type === 'bulletChart') return (
+                            <BulletChart
+                              current={kpi.currentValue}
+                              target={kpi.targetValue}
+                              title={subgoal.title}
+                              unit={kpi.unit}
+                              height={80}
                             />
-                          </div>
-                        )}
-                        {subgoal.kpi.type === 'bulletChart' && (
-                          <BulletChart
-                            current={subgoal.kpi.currentValue}
-                            target={subgoal.kpi.targetValue}
-                            title={subgoal.title}
-                            unit={subgoal.kpi.unit}
-                            height={80}
-                          />
-                        )}
-                        {subgoal.kpi.type === 'progressBar' && (
-                          <div className="w-full">
-                            <div className="mb-2 text-sm font-medium">
-                              {subgoal.kpi.currentValue.toLocaleString()} / {subgoal.kpi.targetValue.toLocaleString()} {subgoal.kpi.unit}
+                          );
+                          if (kpi.type === 'progressBar') return (
+                            <div className="w-full">
+                              <div className="mb-2 text-sm font-medium">
+                                {kpi.currentValue.toLocaleString()} / {kpi.targetValue.toLocaleString()} {kpi.unit}
+                              </div>
+                              <Progress value={(kpi.currentValue / (kpi.targetValue || 1)) * 100} className="h-2" />
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {Math.round((kpi.currentValue / (kpi.targetValue || 1)) * 100)}% Complete
+                              </div>
                             </div>
-                            <Progress value={(subgoal.kpi.currentValue / subgoal.kpi.targetValue) * 100} className="h-2" />
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {Math.round((subgoal.kpi.currentValue / subgoal.kpi.targetValue) * 100)}% Complete
-                            </div>
-                          </div>
-                        )}
+                          );
+                          return null;
+                        })()}
                       </CardContent>
                     </Card>
                   ))}

@@ -33,13 +33,17 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
   const specificSubGoal = stateSubGoal || propSubGoal || (subGoalId && goal ? 
     goal.subgoals.find((sg: StrategicSubGoal) => sg.id === subGoalId) : undefined);
 
+  const backToDashboard = location.state?.selectedPlanId
+    ? `/dashboard?plan=${location.state.selectedPlanId}`
+    : '/dashboard';
+
   if (!goal) {
     return (
       <div className="flex flex-col space-y-8 overflow-x-hidden w-full max-w-full px-2 md:px-4">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-foreground">Goal Not Found</h1>
-          <p className="text-muted-foreground">The requested organizational goal could not be found.</p>
-          <Link to="/dashboard">
+          <h1 className="text-3xl font-bold text-foreground">Objective Not Found</h1>
+          <p className="text-muted-foreground">The requested objective could not be found.</p>
+          <Link to={backToDashboard}>
             <Button className="mt-4">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Dashboard
@@ -79,6 +83,7 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
   };
 
   const renderKPIVisualization = (kpi: any) => {
+    if (!kpi) return null;
     const currentValue = kpi.currentValue || kpi.value || 0;
     const targetValue = kpi.targetValue || kpi.target || 1;
     
@@ -125,8 +130,14 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div className="flex-1">
-            <h4 className="font-semibold text-sm text-foreground">{activity.activityTitle}</h4>
+            <h4 className="font-semibold text-sm text-foreground">
+              {activity.code && <span className="text-muted-foreground font-normal mr-1">{activity.code}</span>}
+              {activity.activityTitle}
+            </h4>
             <p className="text-xs text-muted-foreground">{activity.projectName}</p>
+            {activity.responsibleCountry && (
+              <p className="text-xs text-muted-foreground mt-0.5">Country: {activity.responsibleCountry}</p>
+            )}
           </div>
           <Badge className={getStatusColor(activity.status)}>
             {activity.status.replace('_', ' ').replace('-', ' ')}
@@ -139,6 +150,20 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
             <span className="text-sm font-bold text-foreground">{activity.contribution}%</span>
           </div>
           <Progress value={activity.contribution} className="h-2" />
+          {(activity.timeframeQ1 || activity.timeframeQ2 || activity.timeframeQ3 || activity.timeframeQ4) && (
+            <p className="text-xs text-muted-foreground">
+              Timeframe: {[activity.timeframeQ1 && 'Q1', activity.timeframeQ2 && 'Q2', activity.timeframeQ3 && 'Q3', activity.timeframeQ4 && 'Q4'].filter(Boolean).join(', ')}
+            </p>
+          )}
+          {activity.annualTarget != null && (
+            <p className="text-xs text-muted-foreground">Annual target: {activity.annualTarget}</p>
+          )}
+          {activity.plannedBudget != null && (
+            <p className="text-xs text-muted-foreground">Planned budget: {activity.plannedBudget.toLocaleString()}</p>
+          )}
+          {activity.indicatorText && (
+            <p className="text-xs text-muted-foreground italic line-clamp-2">{activity.indicatorText}</p>
+          )}
           
           <Link to={`/dashboard/projects/${activity.projectId}/activities`}>
             <Button variant="outline" size="sm" className="w-full mt-2">
@@ -159,11 +184,11 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
         <div className="flex items-center gap-4">
           <Link 
             to={`/dashboard/goals/${goal.id}`}
-            state={{ goal, goals: [goal] }}
+            state={{ goal, goals: [goal], selectedPlanId: location.state?.selectedPlanId }}
           >
             <Button variant="outline" size="sm">
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Goal
+              Back to Objective
             </Button>
           </Link>
           <div className="flex-1">
@@ -177,12 +202,12 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Target className="w-5 h-5" />
-              Key Performance Indicator
+              {(specificSubGoal.strategicKpi || specificSubGoal.kpi)?.name ? `KPI: ${(specificSubGoal.strategicKpi || specificSubGoal.kpi).name}` : 'Key Performance Indicator'}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex justify-center">
-              {renderKPIVisualization(specificSubGoal.kpi)}
+              {renderKPIVisualization(specificSubGoal.strategicKpi || specificSubGoal.kpi)}
             </div>
           </CardContent>
         </Card>
@@ -236,7 +261,7 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
     <div className="flex flex-col space-y-8 overflow-x-hidden w-full max-w-full px-2 md:px-4">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Link to="/dashboard">
+        <Link to={backToDashboard}>
           <Button variant="outline" size="sm">
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back to Dashboard
@@ -262,7 +287,7 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Sub-Goals</p>
+                <p className="text-sm font-medium text-muted-foreground">Strategic actions</p>
                 <p className="text-3xl font-bold text-foreground">{goal.subgoals.length}</p>
               </div>
               <Target className="h-8 w-8 text-blue-500" />
@@ -301,9 +326,9 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
       {pieChartData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Project Contributions to Goal</CardTitle>
+            <CardTitle>Project Contributions to Objective</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Average contribution percentage by project across all sub-goals
+              Average contribution percentage by project across all strategic actions
             </p>
           </CardHeader>
           <CardContent>
@@ -317,9 +342,9 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
         </Card>
       )}
 
-      {/* Sub-Goals */}
+      {/* Strategic actions */}
       <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-foreground">Sub-Goals & Project Activities</h2>
+        <h2 className="text-2xl font-bold text-foreground">Strategic actions & Project Activities</h2>
         
         {goal.subgoals.map((subGoal: StrategicSubGoal, index: number) => (
           <Card key={subGoal.id} className="transition-all duration-200 hover:shadow-md">
@@ -331,7 +356,7 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
                 </div>
                 <Link 
                   to={`/dashboard/goals/${goal.id}/subgoals/${subGoal.id}`}
-                  state={{ goal, goals: [goal], subGoal }}
+                  state={{ goal, goals: [goal], subGoal, selectedPlanId: location.state?.selectedPlanId }}
                 >
                   <Button variant="outline" size="sm">
                     View Details
@@ -342,8 +367,11 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
             <CardContent>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* KPI Visualization */}
-                <div className="flex justify-center items-center">
-                  {renderKPIVisualization(subGoal.kpi)}
+                <div className="flex flex-col justify-center items-center gap-2">
+                  {(subGoal.strategicKpi || subGoal.kpi)?.name && (
+                    <p className="text-sm font-medium text-muted-foreground">Organisation-level KPI: {(subGoal.strategicKpi || subGoal.kpi)?.name}</p>
+                  )}
+                  {renderKPIVisualization(subGoal.strategicKpi || subGoal.kpi)}
                 </div>
 
                 {/* Contributing Activities */}

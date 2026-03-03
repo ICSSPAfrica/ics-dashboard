@@ -204,76 +204,121 @@ const parseRepeatableMetadata = (source: string | null | undefined): {
   return { isRepeatable: false };
 };
 
+// Time window (ms) to group repeat-section responses that have no submission id (proximity grouping)
+const PROXIMITY_GROUP_WINDOW_MS = 2  * 1000; // 2 minutes
+
 // Helper function to group responses by submission (for repeatable sections)
-// Responses from the same submission are grouped together
+// 1) Responses with explicit submission id (originalSource) are grouped by that.
+// 2) Repeat-section responses without submission id are grouped by proximity (same respondent, startedAt within window).
 const groupResponsesBySubmission = (responses: FormResponse[], form?: Form): Map<string, FormResponse[]> => {
   const groups = new Map<string, FormResponse[]>();
-  
-  // Check if the form has repeatable sections
   const hasRepeatableSections = form ? getRepeatableSections(form).length > 0 : false;
-  
+
   console.log('🔍 Grouping responses:', {
     responseCount: responses.length,
     hasRepeatableSections,
     formHasSections: !!form
   });
-  
+
+  // First pass: group by explicit submission id when present
+  const withoutSubmissionId: FormResponse[] = [];
   responses.forEach(response => {
     const metadata = parseRepeatableMetadata(response.source);
-    
+
     if (metadata.isRepeatable && metadata.originalSource) {
-      // Group by originalSource + respondentEmail + startedAt (rounded to nearest second)
-      const startedAtRounded = response.startedAt 
-        ? new Date(response.startedAt).setMilliseconds(0) 
+      const startedAtRounded = response.startedAt
+        ? new Date(response.startedAt).setMilliseconds(0)
         : 0;
       const groupKey = `${metadata.originalSource}_${response.respondentEmail || 'anonymous'}_${startedAtRounded}`;
-      
-      if (!groups.has(groupKey)) {
-        groups.set(groupKey, []);
-      }
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey)!.push(response);
       console.log('✅ Grouped response with metadata:', { responseId: response.id, groupKey, metadata });
     } else {
-      // Non-repeatable form or no metadata - each response is its own group
-      const groupKey = `single_${response.id}`;
-      groups.set(groupKey, [response]);
-      console.log('📝 Single response group:', { responseId: response.id, groupKey });
+      withoutSubmissionId.push(response);
     }
   });
-  
-  // Sort responses within each group by startedAt (fallback for responses without instanceIndex)
+
+  // Second pass: for forms with repeatable sections, group remaining responses by proximity (same respondent, close startedAt)
+  if (hasRepeatableSections && withoutSubmissionId.length > 0) {
+    const sorted = [...withoutSubmissionId].sort((a, b) => {
+      const emailA = a.respondentEmail ?? 'anonymous';
+      const emailB = b.respondentEmail ?? 'anonymous';
+      if (emailA !== emailB) return emailA.localeCompare(emailB);
+      const timeA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      const timeB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+      return timeA - timeB;
+    });
+
+    let currentGroup: FormResponse[] = [];
+    let currentRespondent: string | undefined;
+    let currentWindowEnd = 0;
+
+    sorted.forEach(response => {
+      const respondent = response.respondentEmail ?? 'anonymous';
+      const startedAt = response.startedAt ? new Date(response.startedAt).getTime() : 0;
+
+      const sameRespondent = currentRespondent === respondent;
+      const withinWindow = currentGroup.length > 0 && startedAt <= currentWindowEnd;
+
+      if (currentGroup.length > 0 && sameRespondent && withinWindow) {
+        currentGroup.push(response);
+      } else {
+        if (currentGroup.length === 1) {
+          groups.set(`single_${currentGroup[0].id}`, currentGroup);
+        } else if (currentGroup.length > 1) {
+          const first = currentGroup[0];
+          const groupRespondent = first.respondentEmail ?? 'anonymous';
+          const key = `proximity_${groupRespondent}_${first.startedAt ? new Date(first.startedAt).getTime() : first.id}`;
+          groups.set(key, [...currentGroup]);
+          console.log('✅ Grouped by proximity (no submission id):', { groupKey: key, responseCount: currentGroup.length });
+        }
+        currentGroup = [response];
+        currentRespondent = respondent;
+        currentWindowEnd = startedAt + PROXIMITY_GROUP_WINDOW_MS;
+      }
+    });
+
+    if (currentGroup.length === 1) {
+      groups.set(`single_${currentGroup[0].id}`, currentGroup);
+    } else if (currentGroup.length > 1) {
+      const first = currentGroup[0];
+      const groupRespondent = first.respondentEmail ?? 'anonymous';
+      const key = `proximity_${groupRespondent}_${first.startedAt ? new Date(first.startedAt).getTime() : first.id}`;
+      groups.set(key, currentGroup);
+      console.log('✅ Grouped by proximity (no submission id):', { groupKey: key, responseCount: currentGroup.length });
+    }
+  } else {
+    withoutSubmissionId.forEach(response => {
+      groups.set(`single_${response.id}`, [response]);
+      console.log('📝 Single response group:', { responseId: response.id });
+    });
+  }
+
+  // Sort responses within each group by instanceIndex or startedAt
   groups.forEach((groupResponses, key) => {
-    if (key.startsWith('single_')) return; // Don't sort single responses
-    
+    if (key.startsWith('single_')) return;
     groupResponses.sort((a, b) => {
       const metaA = parseRepeatableMetadata(a.source);
       const metaB = parseRepeatableMetadata(b.source);
-      
-      // If we have instance indices, use them
       if (metaA.instanceIndex !== undefined && metaB.instanceIndex !== undefined) {
         return metaA.instanceIndex - metaB.instanceIndex;
       }
-      
-      // Otherwise, sort by startedAt as fallback
       const timeA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
       const timeB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
       return timeA - timeB;
     });
   });
-  
+
   console.log('📊 Final groups:', {
     totalGroups: groups.size,
-    groupSummary: Array.from(groups.entries()).map(([key, responses]) => ({
+    groupSummary: Array.from(groups.entries()).map(([key, res]) => ({
       groupKey: key,
-      responseCount: responses.length,
-      emails: [...new Set(responses.map(r => r.respondentEmail || 'anonymous'))],
-      timeSpan: responses.length > 1 ? {
-        first: responses[0].startedAt,
-        last: responses[responses.length - 1].startedAt
-      } : 'single'
+      responseCount: res.length,
+      emails: [...new Set(res.map(r => r.respondentEmail || 'anonymous'))],
+      timeSpan: res.length > 1 ? { first: res[0].startedAt, last: res[res.length - 1].startedAt } : 'single'
     }))
   });
-  
+
   return groups;
 };
 

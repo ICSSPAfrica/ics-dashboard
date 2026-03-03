@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,18 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Save, ArrowLeft, Edit3, Eye } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Plus, Trash2, Save, ArrowLeft, Edit3, Eye, Calendar } from 'lucide-react';
 import { organizationalGoals } from '@/lib/organizationalGoals';
 import { strategicPlanApi } from '@/lib/api/strategicPlanApi';
 import { useProjects } from '@/contexts/ProjectsContext';
@@ -16,6 +27,7 @@ import { Project, Activity } from '@/types/dashboard';
 
 interface SubGoal {
   id: string;
+  code?: string;
   title: string;
   description: string;
   kpi: {
@@ -23,7 +35,9 @@ interface SubGoal {
     targetValue: number;
     unit: string;
     type: string;
+    name?: string;
   };
+  strategicKpiId?: string;
   activityLinks: ActivityLink[];
 }
 
@@ -34,19 +48,34 @@ interface ActivityLink {
   activityTitle: string;
   contribution: number;
   status: 'contributing' | 'at-risk' | 'not-contributing';
+  code?: string;
+  responsibleCountry?: string;
+  timeframeQ1?: boolean;
+  timeframeQ2?: boolean;
+  timeframeQ3?: boolean;
+  timeframeQ4?: boolean;
+  annualTarget?: number;
+  indicatorText?: string;
+  plannedBudget?: number;
+  strategicKpiId?: string;
 }
 
 interface StrategicGoal {
   id: string;
+  code?: string;
   title: string;
   description: string;
   priority: 'high' | 'medium' | 'low';
   targetOutcome: string;
+  strategicKpiId?: string;
   subgoals: SubGoal[];
 }
 
 export function StrategicPlanEdit() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const planIdFromUrl = searchParams.get('plan');
+
   const { projects, getProjectActivities } = useProjects();
   const { addNotification } = useNotifications();
   const [goals, setGoals] = useState<StrategicGoal[]>([]);
@@ -55,7 +84,21 @@ export function StrategicPlanEdit() {
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [startYear, setStartYear] = useState(new Date().getFullYear());
   const [endYear, setEndYear] = useState(new Date().getFullYear() + 4);
+  const [availablePlans, setAvailablePlans] = useState<Array<{ id: string; title: string; startYear: number; endYear: number }>>([]);
+  const [selectedPlanId, setSelectedPlanIdState] = useState<string | null>(planIdFromUrl || null);
   const [availableActivities, setAvailableActivities] = useState<Record<string, Activity[]>>({});
+  const [planKpis, setPlanKpis] = useState<{ id: string; name?: string; unit: string }[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const setSelectedPlanId = useCallback((id: string | null) => {
+    setSelectedPlanIdState(id);
+    if (id) {
+      setSearchParams({ plan: id }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  }, [setSearchParams]);
 
   // Load activities for a project
   const loadProjectActivities = async (projectId: string) => {
@@ -96,71 +139,136 @@ export function StrategicPlanEdit() {
   };
 
   useEffect(() => {
-    // Load existing strategic plan data
-    loadStrategicPlan();
+    loadPlansList();
   }, []);
 
-  const loadStrategicPlan = async () => {
+  useEffect(() => {
+    if (!selectedPlanId) {
+      setGoals([]);
+      setCurrentPlanId(null);
+      setPlanKpis([]);
+      return;
+    }
+    loadPlanById(selectedPlanId);
+  }, [selectedPlanId]);
+
+  const loadPlansList = async () => {
     try {
-      // Try to load from API first
-      const activePlan = await strategicPlanApi.getActiveStrategicPlan();
-      if (activePlan) {
-        setCurrentPlanId(activePlan.id);
-        setStartYear(activePlan.startYear);
-        setEndYear(activePlan.endYear);
-        const convertedGoals: StrategicGoal[] = activePlan.goals.map(goal => ({
-          id: goal.id,
-          title: goal.title,
-          description: goal.description,
-          priority: goal.priority.toLowerCase() as 'high' | 'medium' | 'low',
-          targetOutcome: goal.targetOutcome,
-          subgoals: goal.subgoals.map(subGoal => ({
-            id: subGoal.id,
-            title: subGoal.title,
-            description: subGoal.description,
-            kpi: {
-              currentValue: subGoal.kpi?.currentValue || 0,
-              targetValue: subGoal.kpi?.targetValue || 0,
-              unit: subGoal.kpi?.unit || '',
-              type: subGoal.kpi?.type || 'radialGauge'
-            },
-            activityLinks: (subGoal.activityLinks || []).map(activity => ({
-              projectId: activity.projectId,
-              projectName: activity.projectName,
-              activityId: activity.activityId,
-              activityTitle: activity.activityTitle,
-              contribution: activity.contribution,
-              status: activity.status.toLowerCase().replace('_', '-') as 'contributing' | 'at-risk' | 'not-contributing'
-            }))
-          }))
-        }));
-        setGoals(convertedGoals);
-        addNotification({
-          type: 'success',
-          title: 'Strategic Plan Loaded Successfully',
-          message: `Loaded ${convertedGoals.length} strategic goals from the database.`,
-          duration: 3000,
-        });
+      const plans = await strategicPlanApi.getStrategicPlans();
+      if (!plans || !Array.isArray(plans) || plans.length === 0) {
+        setAvailablePlans([]);
+        setSelectedPlanId(null);
+        return;
+      }
+      const planOptions = plans.map(p => ({ id: p.id, title: p.title, startYear: p.startYear, endYear: p.endYear }));
+      setAvailablePlans(planOptions);
+      const validUrlId = planIdFromUrl && planOptions.some(p => p.id === planIdFromUrl);
+      if (validUrlId) {
+        setSelectedPlanId(planIdFromUrl);
       } else {
-        // Fallback to static data
-        loadStaticData();
-        addNotification({
-          type: 'info',
-          title: 'Using Default Strategic Plan Data',
-          message: 'No active strategic plan found in the database.',
-          duration: 3000,
-        });
+        const activePlan = await strategicPlanApi.getActiveStrategicPlan();
+        const activeId = activePlan && planOptions.some(p => p.id === activePlan.id) ? activePlan.id : plans[0].id;
+        setSelectedPlanId(activeId);
       }
     } catch (error) {
+      console.error('Error loading strategic plans list:', error);
+      addNotification({
+        type: 'error',
+        title: 'Failed to Load Plans',
+        message: 'Could not load strategic plans list.',
+        duration: 4000,
+      });
+    }
+  };
+
+  const loadPlanById = async (planId: string) => {
+    setIsLoading(true);
+    try {
+      const plan = await strategicPlanApi.getStrategicPlan(planId);
+      setCurrentPlanId(plan.id);
+      setStartYear(plan.startYear);
+      setEndYear(plan.endYear);
+      const convertedGoals: StrategicGoal[] = plan.goals.map(goal => ({
+        id: goal.id,
+        code: goal.code,
+        title: goal.title,
+        description: goal.description,
+        priority: goal.priority.toLowerCase() as 'high' | 'medium' | 'low',
+        targetOutcome: goal.targetOutcome,
+        strategicKpiId: (goal as any).strategicKpiId || (goal as any).strategicKpi?.id,
+        subgoals: goal.subgoals.map(subGoal => ({
+          id: subGoal.id,
+          code: subGoal.code,
+          title: subGoal.title,
+          description: subGoal.description,
+          strategicKpiId: (subGoal as any).strategicKpiId || (subGoal as any).strategicKpi?.id,
+          kpi: {
+            currentValue: (subGoal.strategicKpi || subGoal.kpi)?.currentValue ?? 0,
+            targetValue: (subGoal.strategicKpi || subGoal.kpi)?.targetValue ?? 0,
+            unit: (subGoal.strategicKpi || subGoal.kpi)?.unit ?? '',
+            type: (subGoal.strategicKpi || subGoal.kpi)?.type ?? 'radialGauge',
+            name: (subGoal.strategicKpi || subGoal.kpi)?.name
+          },
+          activityLinks: (subGoal.activityLinks || []).map((activity: any) => ({
+            projectId: activity.projectId,
+            projectName: activity.projectName,
+            activityId: activity.activityId,
+            activityTitle: activity.activityTitle,
+            contribution: activity.contribution,
+            status: activity.status?.toLowerCase?.()?.replace('_', '-') ?? 'contributing',
+            code: activity.code,
+            responsibleCountry: activity.responsibleCountry,
+            timeframeQ1: activity.timeframeQ1 === true,
+            timeframeQ2: activity.timeframeQ2 === true,
+            timeframeQ3: activity.timeframeQ3 === true,
+            timeframeQ4: activity.timeframeQ4 === true,
+            annualTarget: activity.annualTarget != null ? Number(activity.annualTarget) : undefined,
+            indicatorText: activity.indicatorText,
+            plannedBudget: activity.plannedBudget != null ? Number(activity.plannedBudget) : undefined,
+            strategicKpiId: activity.strategicKpiId || activity.strategicKpi?.id
+          }))
+        }))
+      }));
+      setGoals(convertedGoals);
+      const kpiList = await strategicPlanApi.getKpisByPlanId(planId);
+      setPlanKpis(kpiList.map(k => ({ id: k.id, name: k.name, unit: k.unit })));
+      addNotification({
+        type: 'success',
+        title: 'Strategic Plan Loaded',
+        message: `Loaded "${plan.title}" (${convertedGoals.length} objectives).`,
+        duration: 3000,
+      });
+    } catch (error) {
       console.error('Error loading strategic plan:', error);
-      // Fallback to static data
+      setGoals([]);
+      setCurrentPlanId(null);
+      setPlanKpis([]);
       loadStaticData();
       addNotification({
         type: 'warning',
-        title: 'Failed to Load Strategic Plan from Database',
+        title: 'Failed to Load Plan',
         message: 'Using default data instead.',
         duration: 4000,
       });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadStrategicPlan = async () => {
+    if (selectedPlanId) {
+      await loadPlanById(selectedPlanId);
+    } else {
+      try {
+        const activePlan = await strategicPlanApi.getActiveStrategicPlan();
+        if (activePlan) {
+          setSelectedPlanId(activePlan.id);
+        } else {
+          loadStaticData();
+        }
+      } catch {
+        loadStaticData();
+      }
     }
   };
 
@@ -180,7 +288,8 @@ export function StrategicPlanEdit() {
           currentValue: subGoal.kpi.value,
           targetValue: subGoal.kpi.target,
           unit: subGoal.kpi.unit,
-          type: subGoal.kpi.type
+          type: subGoal.kpi.type,
+          name: (subGoal.kpi as any).name
         },
         activityLinks: subGoal.linkedActivities.map(activity => ({
           projectId: activity.projectId,
@@ -266,7 +375,11 @@ export function StrategicPlanEdit() {
       activityId: '',
       activityTitle: '',
       contribution: 0,
-      status: 'contributing'
+      status: 'contributing',
+      timeframeQ1: false,
+      timeframeQ2: false,
+      timeframeQ3: false,
+      timeframeQ4: false
     };
 
     setGoals(goals.map(goal => 
@@ -351,7 +464,7 @@ export function StrategicPlanEdit() {
       addNotification({
         type: 'error',
         title: 'Cannot Save Empty Strategic Plan',
-        message: 'Please add at least one strategic goal before saving.',
+        message: 'Please add at least one objective before saving.',
         duration: 4000,
       });
       return;
@@ -362,8 +475,8 @@ export function StrategicPlanEdit() {
     if (goalsWithoutTitles.length > 0) {
       addNotification({
         type: 'error',
-        title: 'Incomplete Strategic Goals',
-        message: 'All strategic goals must have a title.',
+        title: 'Incomplete Objectives',
+        message: 'All objectives must have a title.',
         duration: 4000,
       });
       return;
@@ -399,7 +512,7 @@ export function StrategicPlanEdit() {
         addNotification({
           type: 'success',
           title: `Strategic Plan "${planTitle}" Updated Successfully`,
-          message: `Updated for ${startYear}-${endYear} with ${goals.length} strategic goals and ${subgoalCount} subgoals.`,
+          message: `Updated for ${startYear}-${endYear} with ${goals.length} objectives and ${subgoalCount} strategic actions.`,
           duration: 5000,
         });
       } else {
@@ -408,13 +521,14 @@ export function StrategicPlanEdit() {
         addNotification({
           type: 'success',
           title: `Strategic Plan "${planTitle}" Created Successfully`,
-          message: `Created for ${startYear}-${endYear} with ${goals.length} strategic goals and ${subgoalCount} subgoals.`,
+          message: `Created for ${startYear}-${endYear} with ${goals.length} objectives and ${subgoalCount} strategic actions.`,
           duration: 5000,
         });
       }
       setIsEditing(false);
-      // Reload the data to get the updated version
-      await loadStrategicPlan();
+      // Reload the data to get the updated version (result may be a new plan id after update)
+      if (result?.id) setSelectedPlanId(result.id);
+      else if (selectedPlanId) await loadPlanById(selectedPlanId);
     } catch (error) {
       console.error('Error updating strategic plan:', error);
       addNotification({
@@ -429,7 +543,8 @@ export function StrategicPlanEdit() {
   };
 
   const handleCancel = () => {
-    loadStrategicPlan(); // Reload original data
+    if (selectedPlanId) loadPlanById(selectedPlanId);
+    else loadStrategicPlan();
     setIsEditing(false);
     addNotification({
       type: 'info',
@@ -437,6 +552,32 @@ export function StrategicPlanEdit() {
       message: 'All changes have been discarded.',
       duration: 3000,
     });
+  };
+
+  const handleDeletePlan = async () => {
+    if (!selectedPlanId) return;
+    setIsDeleting(true);
+    try {
+      await strategicPlanApi.deleteStrategicPlan(selectedPlanId);
+      addNotification({
+        type: 'success',
+        title: 'Strategic Plan Deleted',
+        message: 'The plan and all its objectives have been permanently removed.',
+        duration: 4000,
+      });
+      setDeleteDialogOpen(false);
+      await loadPlansList();
+    } catch (error) {
+      console.error('Error deleting strategic plan:', error);
+      addNotification({
+        type: 'error',
+        title: 'Failed to Delete Plan',
+        message: 'Could not delete the strategic plan. Please try again.',
+        duration: 4000,
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -454,7 +595,7 @@ export function StrategicPlanEdit() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold">Edit Strategic Plan</h1>
-            <p className="text-muted-foreground">Modify organizational goals, subgoals, and their linkages</p>
+            <p className="text-muted-foreground">Modify objectives, strategic actions, and organisation-level KPIs</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
@@ -476,6 +617,79 @@ export function StrategicPlanEdit() {
           )}
         </div>
       </div>
+
+      {/* Strategic Plan Selector */}
+      {availablePlans.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Calendar className="h-5 w-5" />
+              <span>Strategic Plan</span>
+            </CardTitle>
+            <CardDescription>Select which strategic plan to view and edit</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center space-x-4">
+              <div className="space-y-2">
+                <Label htmlFor="plan-select-edit">Plan</Label>
+                <Select
+                  value={selectedPlanId || ''}
+                  onValueChange={(value) => setSelectedPlanId(value || null)}
+                  disabled={isEditing}
+                >
+                  <SelectTrigger id="plan-select-edit" className="w-64">
+                    <SelectValue placeholder="Select a strategic plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePlans.map((plan) => (
+                      <SelectItem key={plan.id} value={plan.id}>
+                        {plan.title} ({plan.startYear}/{plan.endYear})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedPlanId && !isEditing && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete plan
+                </Button>
+              )}
+              {isLoading && (
+                <div className="text-sm text-muted-foreground">Loading plan...</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete strategic plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this strategic plan and all its objectives, strategic actions, and organisation-level KPIs. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDeletePlan(); }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Year Range Display/Edit */}
       <Card>
@@ -521,8 +735,8 @@ export function StrategicPlanEdit() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <Badge variant="outline">Goal {goalIndex + 1}</Badge>
-                  <CardTitle className="text-xl">{goal.title || 'Strategic Goal'}</CardTitle>
+                  <Badge variant="outline">Objective {goalIndex + 1}</Badge>
+                  <CardTitle className="text-xl">{goal.title || 'Objective'}</CardTitle>
                   <Badge variant={goal.priority === 'high' ? 'destructive' : goal.priority === 'medium' ? 'default' : 'secondary'}>
                     {goal.priority}
                   </Badge>
@@ -535,7 +749,7 @@ export function StrategicPlanEdit() {
                     className="flex items-center space-x-2"
                   >
                     <Trash2 className="h-4 w-4" />
-                    <span>Remove Goal</span>
+                    <span>Remove Objective</span>
                   </Button>
                 )}
               </div>
@@ -543,12 +757,22 @@ export function StrategicPlanEdit() {
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor={`goal-title-${goal.id}`}>Goal Title</Label>
+                  <Label htmlFor={`goal-code-${goal.id}`}>Objective Code (e.g. SO1.1)</Label>
+                  <Input
+                    id={`goal-code-${goal.id}`}
+                    value={goal.code ?? ''}
+                    onChange={(e) => updateGoal(goal.id, 'code', e.target.value || undefined)}
+                    placeholder="Optional"
+                    disabled={!isEditing}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor={`goal-title-${goal.id}`}>Objective title</Label>
                   <Input
                     id={`goal-title-${goal.id}`}
                     value={goal.title}
                     onChange={(e) => updateGoal(goal.id, 'title', e.target.value)}
-                    placeholder="Enter strategic goal title"
+                    placeholder="Enter objective title"
                     disabled={!isEditing}
                   />
                 </div>
@@ -577,7 +801,7 @@ export function StrategicPlanEdit() {
                   id={`goal-description-${goal.id}`}
                   value={goal.description}
                   onChange={(e) => updateGoal(goal.id, 'description', e.target.value)}
-                  placeholder="Describe the strategic goal"
+                  placeholder="Describe the objective"
                   rows={3}
                   disabled={!isEditing}
                 />
@@ -589,7 +813,7 @@ export function StrategicPlanEdit() {
                   id={`goal-outcome-${goal.id}`}
                   value={goal.targetOutcome}
                   onChange={(e) => updateGoal(goal.id, 'targetOutcome', e.target.value)}
-                  placeholder="Expected outcome of this goal"
+                  placeholder="Expected outcome of this objective"
                   disabled={!isEditing}
                 />
               </div>
@@ -597,7 +821,7 @@ export function StrategicPlanEdit() {
               {/* Subgoals */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Subgoals ({goal.subgoals.length})</h3>
+                  <h3 className="text-lg font-semibold">Strategic actions ({goal.subgoals.length})</h3>
                   {isEditing && (
                     <Button
                       variant="outline"
@@ -606,7 +830,7 @@ export function StrategicPlanEdit() {
                       className="flex items-center space-x-2"
                     >
                       <Plus className="h-4 w-4" />
-                      <span>Add Subgoal</span>
+                      <span>Add strategic action</span>
                     </Button>
                   )}
                 </div>
@@ -616,7 +840,7 @@ export function StrategicPlanEdit() {
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <Badge variant="secondary">Subgoal {subGoalIndex + 1}</Badge>
+                          <Badge variant="secondary">Strategic action {subGoalIndex + 1}</Badge>
                           <span className="text-sm font-medium">{subGoal.title}</span>
                         </div>
                         {isEditing && (
@@ -633,22 +857,22 @@ export function StrategicPlanEdit() {
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor={`subgoal-title-${subGoal.id}`}>Subgoal Title</Label>
+                          <Label htmlFor={`subgoal-code-${subGoal.id}`}>Action Code (e.g. SA1.1.1)</Label>
                           <Input
-                            id={`subgoal-title-${subGoal.id}`}
-                            value={subGoal.title}
-                            onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'title', e.target.value)}
-                            placeholder="Enter subgoal title"
+                            id={`subgoal-code-${subGoal.id}`}
+                            value={subGoal.code ?? ''}
+                            onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'code', e.target.value || undefined)}
+                            placeholder="Optional"
                             disabled={!isEditing}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor={`subgoal-unit-${subGoal.id}`}>KPI Unit</Label>
+                          <Label htmlFor={`subgoal-title-${subGoal.id}`}>Strategic action title</Label>
                           <Input
-                            id={`subgoal-unit-${subGoal.id}`}
-                            value={subGoal.kpi.unit}
-                            onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'kpi', { ...subGoal.kpi, unit: e.target.value })}
-                            placeholder="e.g., parents, %, people"
+                            id={`subgoal-title-${subGoal.id}`}
+                            value={subGoal.title}
+                            onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'title', e.target.value)}
+                            placeholder="Enter strategic action title"
                             disabled={!isEditing}
                           />
                         </div>
@@ -660,36 +884,15 @@ export function StrategicPlanEdit() {
                           id={`subgoal-description-${subGoal.id}`}
                           value={subGoal.description}
                           onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'description', e.target.value)}
-                          placeholder="Describe the subgoal"
+                          placeholder="Describe the strategic action"
                           rows={2}
                           disabled={!isEditing}
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`subgoal-current-${subGoal.id}`}>Current Value</Label>
-                          <Input
-                            id={`subgoal-current-${subGoal.id}`}
-                            type="number"
-                            value={subGoal.kpi.currentValue}
-                            onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'kpi', { ...subGoal.kpi, currentValue: Number(e.target.value) })}
-                            placeholder="0"
-                            disabled={!isEditing}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`subgoal-target-${subGoal.id}`}>Target Value</Label>
-                          <Input
-                            id={`subgoal-target-${subGoal.id}`}
-                            type="number"
-                            value={subGoal.kpi.targetValue}
-                            onChange={(e) => updateSubGoal(goal.id, subGoal.id, 'kpi', { ...subGoal.kpi, targetValue: Number(e.target.value) })}
-                            placeholder="0"
-                            disabled={!isEditing}
-                          />
-                        </div>
-                      </div>
+                      {subGoal.kpi?.name || subGoal.kpi?.unit ? (
+                        <p className="text-xs text-muted-foreground">Linked KPI: {subGoal.kpi.name || subGoal.kpi.unit}</p>
+                      ) : null}
 
                       {/* Activity Links */}
                       <div className="space-y-4">
@@ -819,6 +1022,122 @@ export function StrategicPlanEdit() {
                                     </SelectContent>
                                   </Select>
                                 </div>
+                                {currentPlanId && (
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label>Link to KPI (organisation-level)</Label>
+                                    <Select
+                                      value={activity.strategicKpiId || '_none'}
+                                      onValueChange={(value) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'strategicKpiId', value === '_none' ? undefined : value)}
+                                      disabled={!isEditing}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="None" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_none">None</SelectItem>
+                                        {planKpis.map((kpi) => (
+                                          <SelectItem key={kpi.id} value={kpi.id}>
+                                            {kpi.name || kpi.unit || kpi.id}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Planned activity details */}
+                              <div className="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <Label>Activity Code</Label>
+                                  <Input
+                                    value={activity.code ?? ''}
+                                    onChange={(e) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'code', e.target.value || undefined)}
+                                    placeholder="e.g. 1.1.1.1"
+                                    disabled={!isEditing}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Responsible Country</Label>
+                                  <Input
+                                    value={activity.responsibleCountry ?? ''}
+                                    onChange={(e) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'responsibleCountry', e.target.value || undefined)}
+                                    placeholder="e.g. Kenya"
+                                    disabled={!isEditing}
+                                  />
+                                </div>
+                                <div className="space-y-2 md:col-span-2">
+                                  <Label>Timeframe (quarters)</Label>
+                                  <div className="flex flex-wrap gap-4">
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`edit-q1-${goal.id}-${subGoal.id}-${activityIndex}`}
+                                        checked={activity.timeframeQ1 === true}
+                                        onCheckedChange={(c) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'timeframeQ1', c === true)}
+                                        disabled={!isEditing}
+                                      />
+                                      <Label htmlFor={`edit-q1-${goal.id}-${subGoal.id}-${activityIndex}`} className="font-normal">Q1</Label>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`edit-q2-${goal.id}-${subGoal.id}-${activityIndex}`}
+                                        checked={activity.timeframeQ2 === true}
+                                        onCheckedChange={(c) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'timeframeQ2', c === true)}
+                                        disabled={!isEditing}
+                                      />
+                                      <Label htmlFor={`edit-q2-${goal.id}-${subGoal.id}-${activityIndex}`} className="font-normal">Q2</Label>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`edit-q3-${goal.id}-${subGoal.id}-${activityIndex}`}
+                                        checked={activity.timeframeQ3 === true}
+                                        onCheckedChange={(c) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'timeframeQ3', c === true)}
+                                        disabled={!isEditing}
+                                      />
+                                      <Label htmlFor={`edit-q3-${goal.id}-${subGoal.id}-${activityIndex}`} className="font-normal">Q3</Label>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`edit-q4-${goal.id}-${subGoal.id}-${activityIndex}`}
+                                        checked={activity.timeframeQ4 === true}
+                                        onCheckedChange={(c) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'timeframeQ4', c === true)}
+                                        disabled={!isEditing}
+                                      />
+                                      <Label htmlFor={`edit-q4-${goal.id}-${subGoal.id}-${activityIndex}`} className="font-normal">Q4</Label>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Annual Target</Label>
+                                  <Input
+                                    type="number"
+                                    value={activity.annualTarget ?? ''}
+                                    onChange={(e) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'annualTarget', e.target.value === '' ? undefined : Number(e.target.value))}
+                                    placeholder="Numeric target"
+                                    min={0}
+                                    disabled={!isEditing}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Planned Budget</Label>
+                                  <Input
+                                    type="number"
+                                    value={activity.plannedBudget ?? ''}
+                                    onChange={(e) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'plannedBudget', e.target.value === '' ? undefined : Number(e.target.value))}
+                                    placeholder="Optional"
+                                    min={0}
+                                    disabled={!isEditing}
+                                  />
+                                </div>
+                             {/*    <div className="space-y-2 md:col-span-2">
+                                  <Label>Indicator / KPI contribution</Label>
+                                  <Textarea
+                                    value={activity.indicatorText ?? ''}
+                                    onChange={(e) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'indicatorText', e.target.value || undefined)}
+                                    placeholder="e.g. # of frontline workforce capacitated..."
+                                    rows={2}
+                                    disabled={!isEditing}
+                                  />
+                                </div> */}
                               </div>
                             </CardContent>
                           </Card>
@@ -842,7 +1161,7 @@ export function StrategicPlanEdit() {
                 className="flex items-center space-x-2"
               >
                 <Plus className="h-5 w-5" />
-                <span>Add Strategic Goal</span>
+                <span>Add Objective</span>
               </Button>
             </CardContent>
           </Card>

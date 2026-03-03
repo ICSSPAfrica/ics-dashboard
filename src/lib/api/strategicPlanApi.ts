@@ -1,6 +1,18 @@
 import { apiClient } from './client';
 
 export interface StrategicKPI {
+  id?: string;
+  currentValue: number;
+  targetValue: number;
+  unit: string;
+  type: string;
+  name?: string;
+}
+
+/** Plan-level KPI (managed in KPIs tab) */
+export interface PlanKpi {
+  id: string;
+  name?: string;
   currentValue: number;
   targetValue: number;
   unit: string;
@@ -14,22 +26,40 @@ export interface StrategicActivityLink {
   activityTitle: string;
   contribution: number;
   status: 'contributing' | 'at-risk' | 'not-contributing';
+  code?: string;
+  responsibleCountry?: string;
+  timeframeQ1?: boolean;
+  timeframeQ2?: boolean;
+  timeframeQ3?: boolean;
+  timeframeQ4?: boolean;
+  annualTarget?: number;
+  indicatorText?: string;
+  plannedBudget?: number;
+  strategicKpiId?: string;
+  strategicKpi?: StrategicKPI & { id: string };
 }
 
 export interface StrategicSubGoal {
   id: string;
+  code?: string;
   title: string;
   description: string;
-  kpi: StrategicKPI;
+  /** @deprecated Use strategicKpi for linked plan-level KPI */
+  kpi?: StrategicKPI;
+  strategicKpiId?: string;
+  strategicKpi?: StrategicKPI & { id: string };
   activityLinks: StrategicActivityLink[];
 }
 
 export interface StrategicGoal {
   id: string;
+  code?: string;
   title: string;
   description: string;
   priority: 'high' | 'medium' | 'low';
   targetOutcome: string;
+  strategicKpiId?: string;
+  strategicKpi?: StrategicKPI & { id: string };
   subgoals: StrategicSubGoal[];
 }
 
@@ -44,6 +74,7 @@ export interface StrategicPlan {
   createdAt: string;
   updatedAt: string;
   goals: StrategicGoal[];
+  kpis?: PlanKpi[];
 }
 
 class StrategicPlanApi {
@@ -54,11 +85,14 @@ class StrategicPlanApi {
     const transformedGoals = data.map(goal => ({
       ...goal,
       priority: goal.priority.toUpperCase() as 'HIGH' | 'MEDIUM' | 'LOW',
+      strategicKpiId: goal.strategicKpiId || undefined,
       subgoals: goal.subgoals.map(subGoal => ({
         ...subGoal,
+        strategicKpiId: subGoal.strategicKpiId || undefined,
         activityLinks: subGoal.activityLinks.map(activity => ({
           ...activity,
-          status: activity.status.toUpperCase().replace('-', '_') as 'CONTRIBUTING' | 'AT_RISK' | 'NOT_CONTRIBUTING'
+          status: activity.status.toUpperCase().replace('-', '_') as 'CONTRIBUTING' | 'AT_RISK' | 'NOT_CONTRIBUTING',
+          strategicKpiId: activity.strategicKpiId || undefined
         }))
       }))
     }));
@@ -76,11 +110,14 @@ class StrategicPlanApi {
     const transformedGoals = data.map(goal => ({
       ...goal,
       priority: goal.priority.toUpperCase() as 'HIGH' | 'MEDIUM' | 'LOW',
+      strategicKpiId: goal.strategicKpiId || undefined,
       subgoals: goal.subgoals.map(subGoal => ({
         ...subGoal,
+        strategicKpiId: subGoal.strategicKpiId || undefined,
         activityLinks: subGoal.activityLinks.map(activity => ({
           ...activity,
-          status: activity.status.toUpperCase().replace('-', '_') as 'CONTRIBUTING' | 'AT_RISK' | 'NOT_CONTRIBUTING'
+          status: activity.status.toUpperCase().replace('-', '_') as 'CONTRIBUTING' | 'AT_RISK' | 'NOT_CONTRIBUTING',
+          strategicKpiId: activity.strategicKpiId || undefined
         }))
       }))
     }));
@@ -120,6 +157,25 @@ class StrategicPlanApi {
 
   async deleteStrategicPlan(id: string): Promise<void> {
     await apiClient.delete(`${this.baseUrl}/${id}`);
+  }
+
+  async getKpisByPlanId(planId: string): Promise<PlanKpi[]> {
+    const response = await apiClient.get(`${this.baseUrl}/${planId}/kpis`);
+    return response.data as PlanKpi[];
+  }
+
+  async createKpi(planId: string, data: { name?: string; currentValue: number; targetValue: number; unit: string; type?: string }): Promise<PlanKpi> {
+    const response = await apiClient.post(`${this.baseUrl}/${planId}/kpis`, data);
+    return response.data as PlanKpi;
+  }
+
+  async updateKpi(kpiId: string, data: { name?: string; currentValue?: number; targetValue?: number; unit?: string; type?: string }): Promise<PlanKpi> {
+    const response = await apiClient.patch(`${this.baseUrl}/kpis/${kpiId}`, data);
+    return response.data as PlanKpi;
+  }
+
+  async deleteKpi(kpiId: string): Promise<void> {
+    await apiClient.delete(`${this.baseUrl}/kpis/${kpiId}`);
   }
 }
 

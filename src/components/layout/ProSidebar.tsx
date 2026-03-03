@@ -154,7 +154,7 @@ export function ProSidebar() {
             component={<Link to="/dashboard" onClick={handleCloseSidebar} />}
             className="text-sm"
           >
-            Organization Goals
+            Objectives
           </MenuItem>
             {isAdmin() && (
               <SubMenu 
@@ -173,6 +173,12 @@ export function ProSidebar() {
                   className="text-sm"
                 >
                   Edit Strategic Plan
+                </MenuItem>
+                <MenuItem 
+                  component={<Link to="/dashboard/strategic-plan/kpis" onClick={handleCloseSidebar} />}
+                  className="text-sm"
+                >
+                  KPIs
                 </MenuItem>
               </SubMenu>
             )}
