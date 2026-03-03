@@ -57,6 +57,8 @@ export function StrategicPlanCreate() {
   const { addNotification } = useNotifications();
   const [goals, setGoals] = useState<StrategicGoal[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [planTitle, setPlanTitle] = useState('');
+  const [planDescription, setPlanDescription] = useState('');
   const [startYear, setStartYear] = useState(new Date().getFullYear());
   const [endYear, setEndYear] = useState(new Date().getFullYear() + 4);
   const [availableActivities, setAvailableActivities] = useState<Record<string, Activity[]>>({});
@@ -308,15 +310,25 @@ export function StrategicPlanCreate() {
       return;
     }
 
+    if (!planTitle.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Plan name required',
+        message: 'Please enter a name for the strategic plan.',
+        duration: 4000,
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const result = await strategicPlanApi.createStrategicPlan(goals, startYear, endYear);
-      const planTitle = result?.title || 'Strategic Plan';
+      const result = await strategicPlanApi.createStrategicPlan(goals, startYear, endYear, planTitle.trim(), planDescription.trim() || undefined);
+      const resultTitle = result?.title || 'Strategic Plan';
       const subgoalCount = goals.reduce((sum, goal) => sum + goal.subgoals.length, 0);
       
       addNotification({
         type: 'success',
-        title: `Strategic Plan "${planTitle}" Created Successfully`,
+        title: `Strategic Plan "${resultTitle}" Created Successfully`,
         message: `Created for ${startYear}-${endYear} with ${goals.length} objectives and ${subgoalCount} strategic actions.`,
         duration: 5000,
       });
@@ -357,6 +369,35 @@ export function StrategicPlanCreate() {
           <span>{isLoading ? 'Saving...' : 'Save Strategic Plan'}</span>
         </Button>
       </div>
+
+      {/* Plan name and description */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Plan name</CardTitle>
+          <CardDescription>Give this strategic plan a name and optional description</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="plan-title">Plan name</Label>
+            <Input
+              id="plan-title"
+              value={planTitle}
+              onChange={(e) => setPlanTitle(e.target.value)}
+              placeholder="e.g. ICS Strategic Plan 2025–2029"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="plan-description">Description (optional)</Label>
+            <Textarea
+              id="plan-description"
+              value={planDescription}
+              onChange={(e) => setPlanDescription(e.target.value)}
+              placeholder="Brief description of this strategic plan"
+              rows={2}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Year Range Selection */}
       <Card>

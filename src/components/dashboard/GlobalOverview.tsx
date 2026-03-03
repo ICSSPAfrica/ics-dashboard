@@ -12,7 +12,16 @@ import { AreaChart } from '@/components/visualizations/AreaChart';
 import { BulletChart } from '@/components/visualizations/BulletChart';
 import { PieChart } from '@/components/visualizations/PieChart';
 import { Progress } from '@/components/ui/progress';
-import { Target, Activity, TrendingUp, ChevronRight, Calendar, Gauge } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Target, Activity, TrendingUp, ChevronRight, Calendar, Gauge, LayoutDashboard, BarChart3, Pencil } from 'lucide-react';
 import { strategicPlanApi, StrategicPlan, StrategicGoal, PlanKpi } from '@/lib/api/strategicPlanApi';
 import { toast } from 'sonner';
 
@@ -49,8 +58,18 @@ export function GlobalOverview() {
   const [planKpis, setPlanKpis] = useState<PlanKpi[]>([]);
   const [availablePlans, setAvailablePlans] = useState<Array<{id: string, title: string, startYear: number, endYear: number}>>([]);
   const [selectedPlanId, setSelectedPlanIdState] = useState<string | null>(planIdFromUrl || null);
+  const [activeTab, setActiveTab] = useState<string>('objectives');
   const [isLoading, setIsLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
+  const [editingKpiId, setEditingKpiId] = useState<string | null>(null);
+  const [editKpiForm, setEditKpiForm] = useState({
+    name: '',
+    currentValue: '',
+    targetValue: '',
+    unit: '',
+    type: 'radialGauge' as string,
+  });
+  const [isSavingKpi, setIsSavingKpi] = useState(false);
 
   const setSelectedPlanId = useCallback((id: string | null) => {
     setSelectedPlanIdState(id);
@@ -151,6 +170,49 @@ export function GlobalOverview() {
     });
   });
 
+  const openEditKpi = (kpi: PlanKpi) => {
+    setEditingKpiId(kpi.id);
+    setEditKpiForm({
+      name: kpi.name ?? '',
+      currentValue: String(kpi.currentValue ?? 0),
+      targetValue: String(kpi.targetValue ?? 0),
+      unit: kpi.unit ?? '',
+      type: kpi.type ?? 'radialGauge',
+    });
+  };
+
+  const closeEditKpi = () => {
+    setEditingKpiId(null);
+  };
+
+  const saveEditKpi = async () => {
+    if (!editingKpiId) return;
+    const current = Number(editKpiForm.currentValue);
+    const target = Number(editKpiForm.targetValue);
+    if (isNaN(current) || isNaN(target) || !editKpiForm.unit.trim()) {
+      toast.error('Please enter valid current value, target value, and unit.');
+      return;
+    }
+    setIsSavingKpi(true);
+    try {
+      const updated = await strategicPlanApi.updateKpi(editingKpiId, {
+        name: editKpiForm.name.trim() || undefined,
+        currentValue: current,
+        targetValue: target,
+        unit: editKpiForm.unit.trim(),
+        type: editKpiForm.type,
+      });
+      setPlanKpis((prev) => prev.map((k) => (k.id === editingKpiId ? { ...k, ...updated } : k)));
+      toast.success('KPI updated');
+      closeEditKpi();
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to update KPI');
+    } finally {
+      setIsSavingKpi(false);
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -193,133 +255,81 @@ export function GlobalOverview() {
         </p>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Objectives</p>
-                <p className="text-3xl font-bold text-foreground">{goals.length}</p>
-              </div>
-              <Target className="h-8 w-8 text-blue-500" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Strategic actions</p>
-                <p className="text-3xl font-bold text-foreground">{totalSubgoals}</p>
-              </div>
-              <TrendingUp className="h-8 w-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2 h-11">
+          <TabsTrigger value="objectives" className="flex items-center gap-2">
+            <LayoutDashboard className="h-4 w-4" />
+            Objectives overview
+          </TabsTrigger>
+          <TabsTrigger value="kpis" className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Organisation KPIs
+          </TabsTrigger>
+        </TabsList>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Contributing Projects</p>
-                <p className="text-3xl font-bold text-foreground">{uniqueProjects.size}</p>
-              </div>
-              <Activity className="h-8 w-8 text-purple-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Activities</p>
-                <p className="text-3xl font-bold text-foreground">{totalActivities}</p>
-              </div>
-              <Activity className="h-8 w-8 text-orange-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Organisation-level KPIs</p>
-                <p className="text-3xl font-bold text-foreground">{planKpis.length}</p>
-              </div>
-              <Gauge className="h-8 w-8 text-cyan-500" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Organisation-level KPIs */}
-      {hasData && planKpis.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-foreground">Organisation-level KPIs</h2>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/dashboard/strategic-plan/kpis">Manage KPIs</Link>
-            </Button>
+        <TabsContent value="objectives" className="space-y-6 mt-6">
+          {/* Summary cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Objectives</p>
+                    <p className="text-3xl font-bold text-foreground">{goals.length}</p>
+                  </div>
+                  <Target className="h-8 w-8 text-blue-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Strategic actions</p>
+                    <p className="text-3xl font-bold text-foreground">{totalSubgoals}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-green-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Contributing Projects</p>
+                    <p className="text-3xl font-bold text-foreground">{uniqueProjects.size}</p>
+                  </div>
+                  <Activity className="h-8 w-8 text-purple-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Activities</p>
+                    <p className="text-3xl font-bold text-foreground">{totalActivities}</p>
+                  </div>
+                  <Activity className="h-8 w-8 text-orange-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Organisation-level KPIs</p>
+                    <p className="text-3xl font-bold text-foreground">{planKpis.length}</p>
+                  </div>
+                  <Gauge className="h-8 w-8 text-cyan-500" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {planKpis.map((kpi) => {
-              const current = kpi.currentValue ?? 0;
-              const target = kpi.targetValue ?? 1;
-              const pct = target ? Math.min(100, Math.round((current / target) * 100)) : 0;
-              return (
-                <Card key={kpi.id} className="bg-muted/30">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base font-semibold">
-                      {kpi.name || `KPI ${kpi.unit}`}
-                    </CardTitle>
-                    <CardDescription className="text-sm">
-                      {current.toLocaleString()} / {target.toLocaleString()} {kpi.unit}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    {kpi.type === 'progressBar' && (
-                      <div className="w-full">
-                        <Progress value={pct} className="h-2" />
-                        <div className="mt-1 text-xs text-muted-foreground">{pct}%</div>
-                      </div>
-                    )}
-                    {kpi.type === 'bulletChart' && (
-                      <BulletChart
-                        current={current}
-                        target={target}
-                        title={kpi.name || ''}
-                        unit={kpi.unit}
-                        height={72}
-                      />
-                    )}
-                    {(kpi.type === 'radialGauge' || !kpi.type) && (
-                      <div className="flex justify-center">
-                        <RadialGauge
-                          value={pct}
-                          size={90}
-                          unit={kpi.unit}
-                          primaryColor="#06b6d4"
-                          max={100}
-                        />
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
-      {/* Objectives */}
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-foreground">Objectives</h2>
-        
-        {isLoading ? (
+          {/* Objectives list */}
+          <h2 className="text-2xl font-bold text-foreground">Objectives</h2>
+          {isLoading ? (
           <Card>
             <CardContent className="p-12 text-center">
               <div className="flex flex-col items-center space-y-4">
@@ -359,7 +369,7 @@ export function GlobalOverview() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+          ) : (
           goals.map((goal) => {
           const overallProgress = getOverallProgress(goal.subgoals);
           
@@ -489,7 +499,169 @@ export function GlobalOverview() {
           );
         })
         )}
-      </div>
+        </TabsContent>
+
+        <TabsContent value="kpis" className="space-y-6 mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-foreground">Organisation-level KPIs</h2>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/dashboard/strategic-plan/kpis">Manage KPIs</Link>
+            </Button>
+          </div>
+          {!selectedPlanId ? (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Gauge className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">Select a strategic plan above to view organisation-level KPIs.</p>
+              </CardContent>
+            </Card>
+          ) : planKpis.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Gauge className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">No organisation-level KPIs for this plan. Add KPIs in the Manage KPIs page.</p>
+                <Button variant="outline" className="mt-4" asChild>
+                  <Link to="/dashboard/strategic-plan/kpis">Manage KPIs</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {planKpis.map((kpi) => {
+                const current = kpi.currentValue ?? 0;
+                const target = kpi.targetValue ?? 1;
+                const pct = target ? Math.min(100, Math.round((current / target) * 100)) : 0;
+                return (
+                  <Card key={kpi.id} className="bg-muted/30">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="text-base font-semibold">
+                            {kpi.name || `KPI ${kpi.unit}`}
+                          </CardTitle>
+                          <CardDescription className="text-sm">
+                            {current.toLocaleString()} / {target.toLocaleString()} {kpi.unit}
+                          </CardDescription>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => openEditKpi(kpi)}
+                          aria-label="Edit KPI"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      {kpi.type === 'progressBar' && (
+                        <div className="w-full">
+                          <Progress value={pct} className="h-2" />
+                          <div className="mt-1 text-xs text-muted-foreground">{pct}%</div>
+                        </div>
+                      )}
+                      {kpi.type === 'bulletChart' && (
+                        <BulletChart
+                          current={current}
+                          target={target}
+                          title={kpi.name || ''}
+                          unit={kpi.unit}
+                          height={72}
+                        />
+                      )}
+                      {(kpi.type === 'radialGauge' || !kpi.type) && (
+                        <div className="flex justify-center">
+                          <RadialGauge
+                            value={pct}
+                            size={90}
+                            unit={kpi.unit}
+                            primaryColor="#06b6d4"
+                            max={100}
+                          />
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={editingKpiId !== null} onOpenChange={(open) => !open && closeEditKpi()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit organisation-level KPI</DialogTitle>
+            <DialogDescription>Update the KPI name, values, unit, and visualization type.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-kpi-name">Display name (optional)</Label>
+              <Input
+                id="edit-kpi-name"
+                value={editKpiForm.name}
+                onChange={(e) => setEditKpiForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Number of parents reached"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-kpi-unit">Unit</Label>
+              <Input
+                id="edit-kpi-unit"
+                value={editKpiForm.unit}
+                onChange={(e) => setEditKpiForm((f) => ({ ...f, unit: e.target.value }))}
+                placeholder="e.g. people, %"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-kpi-current">Current value</Label>
+                <Input
+                  id="edit-kpi-current"
+                  type="number"
+                  value={editKpiForm.currentValue}
+                  onChange={(e) => setEditKpiForm((f) => ({ ...f, currentValue: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-kpi-target">Target value</Label>
+                <Input
+                  id="edit-kpi-target"
+                  type="number"
+                  value={editKpiForm.targetValue}
+                  onChange={(e) => setEditKpiForm((f) => ({ ...f, targetValue: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-kpi-type">Visualization type</Label>
+              <Select
+                value={editKpiForm.type}
+                onValueChange={(v) => setEditKpiForm((f) => ({ ...f, type: v }))}
+              >
+                <SelectTrigger id="edit-kpi-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="radialGauge">Radial gauge</SelectItem>
+                  <SelectItem value="bulletChart">Bullet chart</SelectItem>
+                  <SelectItem value="progressBar">Progress bar</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEditKpi} disabled={isSavingKpi}>
+              Cancel
+            </Button>
+            <Button onClick={saveEditKpi} disabled={isSavingKpi}>
+              {isSavingKpi ? 'Saving…' : 'Save changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

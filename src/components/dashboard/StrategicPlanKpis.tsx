@@ -5,7 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, Save, ArrowLeft, Target } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Plus, Trash2, ArrowLeft, Target, Pencil } from 'lucide-react';
 import { strategicPlanApi, type StrategicPlan, type PlanKpi } from '@/lib/api/strategicPlanApi';
 import { useNotifications } from '@/contexts/NotificationContext';
 
@@ -18,6 +26,15 @@ export function StrategicPlanKpis() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingKpiId, setEditingKpiId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; currentValue: string; targetValue: string; unit: string; type: string }>({
+    name: '',
+    currentValue: '0',
+    targetValue: '0',
+    unit: '',
+    type: 'radialGauge',
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [form, setForm] = useState<{ name: string; currentValue: string; targetValue: string; unit: string }>({
     name: '',
     currentValue: '0',
@@ -96,6 +113,46 @@ export function StrategicPlanKpis() {
       if (selectedPlanId) loadKpis(selectedPlanId);
     } catch (e) {
       addNotification({ type: 'error', title: 'Error', message: 'Failed to delete KPI', duration: 4000 });
+    }
+  };
+
+  const openEditKpi = (kpi: PlanKpi) => {
+    setEditingKpiId(kpi.id);
+    setEditForm({
+      name: kpi.name ?? '',
+      currentValue: String(kpi.currentValue ?? 0),
+      targetValue: String(kpi.targetValue ?? 0),
+      unit: kpi.unit ?? '',
+      type: kpi.type ?? 'radialGauge',
+    });
+  };
+
+  const closeEditKpi = () => setEditingKpiId(null);
+
+  const handleSaveEdit = async () => {
+    if (!editingKpiId) return;
+    const current = Number(editForm.currentValue);
+    const target = Number(editForm.targetValue);
+    if (isNaN(current) || isNaN(target) || !editForm.unit.trim()) {
+      addNotification({ type: 'error', title: 'Validation', message: 'Unit, current value and target value are required', duration: 4000 });
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      await strategicPlanApi.updateKpi(editingKpiId, {
+        name: editForm.name.trim() || undefined,
+        currentValue: current,
+        targetValue: target,
+        unit: editForm.unit.trim(),
+        type: editForm.type,
+      });
+      addNotification({ type: 'success', title: 'KPI updated', duration: 3000 });
+      if (selectedPlanId) loadKpis(selectedPlanId);
+      closeEditKpi();
+    } catch (e) {
+      addNotification({ type: 'error', title: 'Error', message: 'Failed to update KPI', duration: 4000 });
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -219,9 +276,16 @@ export function StrategicPlanKpis() {
                         {kpi.currentValue} / {kpi.targetValue} {kpi.unit}
                       </span>
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(kpi.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button variant="outline" size="sm" onClick={() => openEditKpi(kpi)}>
+                        <Pencil className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                      <Button variant="outline" size="sm" className="text-destructive border-destructive/50 hover:bg-destructive/10" onClick={() => handleDelete(kpi.id)}>
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Delete
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -229,6 +293,72 @@ export function StrategicPlanKpis() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={editingKpiId !== null} onOpenChange={(open) => !open && closeEditKpi()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit KPI</DialogTitle>
+            <DialogDescription>Update the KPI name, values, unit, and visualization type.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-kpi-name">Display name (optional)</Label>
+              <Input
+                id="edit-kpi-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Number of parents reached"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-kpi-unit">Unit</Label>
+              <Input
+                id="edit-kpi-unit"
+                value={editForm.unit}
+                onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))}
+                placeholder="e.g. people, %"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-kpi-current">Current value</Label>
+                <Input
+                  id="edit-kpi-current"
+                  type="number"
+                  value={editForm.currentValue}
+                  onChange={(e) => setEditForm((f) => ({ ...f, currentValue: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-kpi-target">Target value</Label>
+                <Input
+                  id="edit-kpi-target"
+                  type="number"
+                  value={editForm.targetValue}
+                  onChange={(e) => setEditForm((f) => ({ ...f, targetValue: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-kpi-type">Visualization type</Label>
+              <Select value={editForm.type} onValueChange={(v) => setEditForm((f) => ({ ...f, type: v }))}>
+                <SelectTrigger id="edit-kpi-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="radialGauge">Radial gauge</SelectItem>
+                  <SelectItem value="bulletChart">Bullet chart</SelectItem>
+                  <SelectItem value="progressBar">Progress bar</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEditKpi} disabled={isSavingEdit}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={isSavingEdit}>{isSavingEdit ? 'Saving…' : 'Save changes'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

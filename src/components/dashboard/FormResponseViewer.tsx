@@ -577,13 +577,28 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
         </div>
       );
 
-    case 'NUMBER':
+    case 'NUMBER': {
+      const numQuestion = question as { min?: number; max?: number };
       if (isEditable) {
+        const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+          const raw = e.target.value;
+          if (raw === '') {
+            onValueChange?.(null);
+            return;
+          }
+          let num = Number(raw);
+          if (isNaN(num)) return;
+          if (numQuestion.min != null && num < numQuestion.min) num = numQuestion.min;
+          if (numQuestion.max != null && num > numQuestion.max) num = numQuestion.max;
+          onValueChange?.(num);
+        };
         return (
           <Input
             type="number"
-            value={value || ''}
-            onChange={(e) => onValueChange?.(e.target.value === '' ? null : Number(e.target.value))}
+            value={value ?? ''}
+            onChange={handleNumberChange}
+            min={numQuestion.min}
+            max={numQuestion.max}
             className="text-xs h-6 px-1 font-mono"
             placeholder="Enter number..."
           />
@@ -594,6 +609,7 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
           {value !== undefined && value !== null ? value : '-'}
         </div>
       );
+    }
 
     case 'SINGLE_CHOICE':
       if (isEditable) {

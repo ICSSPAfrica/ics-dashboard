@@ -82,6 +82,8 @@ export function StrategicPlanEdit() {
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
+  const [planTitle, setPlanTitle] = useState('');
+  const [planDescription, setPlanDescription] = useState('');
   const [startYear, setStartYear] = useState(new Date().getFullYear());
   const [endYear, setEndYear] = useState(new Date().getFullYear() + 4);
   const [availablePlans, setAvailablePlans] = useState<Array<{ id: string; title: string; startYear: number; endYear: number }>>([]);
@@ -186,6 +188,8 @@ export function StrategicPlanEdit() {
     try {
       const plan = await strategicPlanApi.getStrategicPlan(planId);
       setCurrentPlanId(plan.id);
+      setPlanTitle(plan.title || '');
+      setPlanDescription(plan.description || '');
       setStartYear(plan.startYear);
       setEndYear(plan.endYear);
       const convertedGoals: StrategicGoal[] = plan.goals.map(goal => ({
@@ -242,6 +246,8 @@ export function StrategicPlanEdit() {
       console.error('Error loading strategic plan:', error);
       setGoals([]);
       setCurrentPlanId(null);
+      setPlanTitle('');
+      setPlanDescription('');
       setPlanKpis([]);
       loadStaticData();
       addNotification({
@@ -273,6 +279,8 @@ export function StrategicPlanEdit() {
   };
 
   const loadStaticData = () => {
+    setPlanTitle('');
+    setPlanDescription('');
     // Convert the existing organizational goals to the editable format
     const convertedGoals: StrategicGoal[] = organizationalGoals.map(goal => ({
       id: goal.id,
@@ -501,13 +509,25 @@ export function StrategicPlanEdit() {
       return;
     }
 
+    if (!planTitle.trim()) {
+      addNotification({
+        type: 'error',
+        title: 'Plan name required',
+        message: 'Please enter a name for the strategic plan.',
+        duration: 4000,
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
       let result;
       const subgoalCount = goals.reduce((sum, goal) => sum + goal.subgoals.length, 0);
-      
+      const title = planTitle.trim();
+      const description = planDescription.trim() || undefined;
+
       if (currentPlanId) {
-        result = await strategicPlanApi.updateStrategicPlan(currentPlanId, goals, startYear, endYear);
+        result = await strategicPlanApi.updateStrategicPlan(currentPlanId, goals, startYear, endYear, title, description);
         const planTitle = result?.title || 'Strategic Plan';
         addNotification({
           type: 'success',
@@ -516,7 +536,7 @@ export function StrategicPlanEdit() {
           duration: 5000,
         });
       } else {
-        result = await strategicPlanApi.createStrategicPlan(goals, startYear, endYear);
+        result = await strategicPlanApi.createStrategicPlan(goals, startYear, endYear, title, description);
         const planTitle = result?.title || 'Strategic Plan';
         addNotification({
           type: 'success',
@@ -690,6 +710,41 @@ export function StrategicPlanEdit() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Plan name and description */}
+      {selectedPlanId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Plan name</CardTitle>
+            <CardDescription>
+              {isEditing ? 'Edit the name and optional description for this strategic plan' : 'Name and description of this plan'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="plan-title-edit">Plan name</Label>
+              <Input
+                id="plan-title-edit"
+                value={planTitle}
+                onChange={(e) => setPlanTitle(e.target.value)}
+                placeholder="e.g. ICS Strategic Plan 2025–2029"
+                disabled={!isEditing}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="plan-description-edit">Description (optional)</Label>
+              <Textarea
+                id="plan-description-edit"
+                value={planDescription}
+                onChange={(e) => setPlanDescription(e.target.value)}
+                placeholder="Brief description of this strategic plan"
+                rows={2}
+                disabled={!isEditing}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Year Range Display/Edit */}
       <Card>

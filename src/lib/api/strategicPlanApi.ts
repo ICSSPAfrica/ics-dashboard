@@ -80,7 +80,7 @@ export interface StrategicPlan {
 class StrategicPlanApi {
   private baseUrl = '/strategic-plan';
 
-  async createStrategicPlan(data: StrategicGoal[], startYear?: number, endYear?: number): Promise<StrategicPlan> {
+  async createStrategicPlan(data: StrategicGoal[], startYear?: number, endYear?: number, title?: string, description?: string): Promise<StrategicPlan> {
     // Transform frontend data to backend format
     const transformedGoals = data.map(goal => ({
       ...goal,
@@ -100,12 +100,14 @@ class StrategicPlanApi {
     const response = await apiClient.post(`${this.baseUrl}/from-frontend`, { 
       goals: transformedGoals, 
       startYear: startYear || new Date().getFullYear(), 
-      endYear: endYear || new Date().getFullYear() + 4
+      endYear: endYear || new Date().getFullYear() + 4,
+      title: title?.trim() || undefined,
+      description: description?.trim() || undefined
     });
     return response.data as StrategicPlan;
   }
 
-  async updateStrategicPlan(id: string, data: StrategicGoal[], startYear?: number, endYear?: number): Promise<StrategicPlan> {
+  async updateStrategicPlan(id: string, data: StrategicGoal[], startYear?: number, endYear?: number, title?: string, description?: string): Promise<StrategicPlan> {
     // Transform frontend data to backend format
     const transformedGoals = data.map(goal => ({
       ...goal,
@@ -125,7 +127,9 @@ class StrategicPlanApi {
     const response = await apiClient.patch(`${this.baseUrl}/${id}/from-frontend`, { 
       goals: transformedGoals,
       startYear: startYear || new Date().getFullYear(),
-      endYear: endYear || new Date().getFullYear() + 4
+      endYear: endYear || new Date().getFullYear() + 4,
+      title: title?.trim() || undefined,
+      description: description?.trim() || undefined
     });
     return response.data as StrategicPlan;
   }

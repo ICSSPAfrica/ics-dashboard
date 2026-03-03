@@ -20,12 +20,15 @@ export function NumberQuestionRenderer({
     const newValue = e.target.value;
     if (newValue === '') {
       onChange?.(undefined);
-    } else {
-      const numValue = Number(newValue);
-      if (!isNaN(numValue)) {
-        onChange?.(numValue);
-      }
+      return;
     }
+    const numValue = Number(newValue);
+    if (isNaN(numValue)) return;
+    // Clamp to min/max when defined so the input cannot hold values beyond the range
+    let clamped = numValue;
+    if (question.min != null && clamped < question.min) clamped = question.min;
+    if (question.max != null && clamped > question.max) clamped = question.max;
+    onChange?.(clamped);
   };
 
   return (
