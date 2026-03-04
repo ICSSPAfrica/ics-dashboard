@@ -19,11 +19,32 @@ export interface PlanKpi {
   type: string;
 }
 
+/** Organisation-wide activity (plan-level, can be linked across the plan) */
+export interface StrategicActivity {
+  id: string;
+  strategicPlanId: string;
+  title: string;
+  description?: string;
+  code?: string;
+  order: number;
+  timeframeQ1?: boolean;
+  timeframeQ2?: boolean;
+  timeframeQ3?: boolean;
+  timeframeQ4?: boolean;
+  annualTarget?: number;
+  indicatorText?: string;
+  plannedBudget?: number;
+  strategicKpiId?: string;
+  strategicKpi?: PlanKpi;
+}
+
 export interface StrategicActivityLink {
-  projectId: string;
-  projectName: string;
-  activityId: string;
-  activityTitle: string;
+  projectId?: string;
+  projectName?: string;
+  activityId?: string;
+  activityTitle?: string;
+  /** When set, this link references an organisation-wide activity */
+  strategicActivityId?: string;
   contribution: number;
   status: 'contributing' | 'at-risk' | 'not-contributing';
   code?: string;
@@ -37,6 +58,7 @@ export interface StrategicActivityLink {
   plannedBudget?: number;
   strategicKpiId?: string;
   strategicKpi?: StrategicKPI & { id: string };
+  strategicActivity?: StrategicActivity;
 }
 
 export interface StrategicSubGoal {
@@ -75,6 +97,7 @@ export interface StrategicPlan {
   updatedAt: string;
   goals: StrategicGoal[];
   kpis?: PlanKpi[];
+  activities?: StrategicActivity[];
 }
 
 class StrategicPlanApi {
@@ -90,8 +113,22 @@ class StrategicPlanApi {
         ...subGoal,
         strategicKpiId: subGoal.strategicKpiId || undefined,
         activityLinks: subGoal.activityLinks.map(activity => ({
-          ...activity,
+          projectId: activity.projectId || undefined,
+          projectName: activity.projectName || undefined,
+          activityId: activity.activityId || undefined,
+          activityTitle: activity.activityTitle || undefined,
+          strategicActivityId: activity.strategicActivityId || undefined,
+          contribution: activity.contribution,
           status: activity.status.toUpperCase().replace('-', '_') as 'CONTRIBUTING' | 'AT_RISK' | 'NOT_CONTRIBUTING',
+          code: activity.code,
+          responsibleCountry: activity.responsibleCountry,
+          timeframeQ1: activity.timeframeQ1,
+          timeframeQ2: activity.timeframeQ2,
+          timeframeQ3: activity.timeframeQ3,
+          timeframeQ4: activity.timeframeQ4,
+          annualTarget: activity.annualTarget,
+          indicatorText: activity.indicatorText,
+          plannedBudget: activity.plannedBudget,
           strategicKpiId: activity.strategicKpiId || undefined
         }))
       }))
@@ -117,8 +154,22 @@ class StrategicPlanApi {
         ...subGoal,
         strategicKpiId: subGoal.strategicKpiId || undefined,
         activityLinks: subGoal.activityLinks.map(activity => ({
-          ...activity,
+          projectId: activity.projectId || undefined,
+          projectName: activity.projectName || undefined,
+          activityId: activity.activityId || undefined,
+          activityTitle: activity.activityTitle || undefined,
+          strategicActivityId: activity.strategicActivityId || undefined,
+          contribution: activity.contribution,
           status: activity.status.toUpperCase().replace('-', '_') as 'CONTRIBUTING' | 'AT_RISK' | 'NOT_CONTRIBUTING',
+          code: activity.code,
+          responsibleCountry: activity.responsibleCountry,
+          timeframeQ1: activity.timeframeQ1,
+          timeframeQ2: activity.timeframeQ2,
+          timeframeQ3: activity.timeframeQ3,
+          timeframeQ4: activity.timeframeQ4,
+          annualTarget: activity.annualTarget,
+          indicatorText: activity.indicatorText,
+          plannedBudget: activity.plannedBudget,
           strategicKpiId: activity.strategicKpiId || undefined
         }))
       }))
@@ -180,6 +231,49 @@ class StrategicPlanApi {
 
   async deleteKpi(kpiId: string): Promise<void> {
     await apiClient.delete(`${this.baseUrl}/kpis/${kpiId}`);
+  }
+
+  async getActivitiesByPlanId(planId: string): Promise<StrategicActivity[]> {
+    const response = await apiClient.get(`${this.baseUrl}/${planId}/activities`);
+    return response.data as StrategicActivity[];
+  }
+
+  async createActivity(planId: string, data: {
+    title: string;
+    description?: string;
+    code?: string;
+    timeframeQ1?: boolean;
+    timeframeQ2?: boolean;
+    timeframeQ3?: boolean;
+    timeframeQ4?: boolean;
+    annualTarget?: number;
+    indicatorText?: string;
+    plannedBudget?: number;
+    strategicKpiId?: string;
+  }): Promise<StrategicActivity> {
+    const response = await apiClient.post(`${this.baseUrl}/${planId}/activities`, data);
+    return response.data as StrategicActivity;
+  }
+
+  async updateActivity(activityId: string, data: {
+    title?: string;
+    description?: string;
+    code?: string;
+    timeframeQ1?: boolean;
+    timeframeQ2?: boolean;
+    timeframeQ3?: boolean;
+    timeframeQ4?: boolean;
+    annualTarget?: number;
+    indicatorText?: string;
+    plannedBudget?: number;
+    strategicKpiId?: string;
+  }): Promise<StrategicActivity> {
+    const response = await apiClient.patch(`${this.baseUrl}/activities/${activityId}`, data);
+    return response.data as StrategicActivity;
+  }
+
+  async deleteActivity(activityId: string): Promise<void> {
+    await apiClient.delete(`${this.baseUrl}/activities/${activityId}`);
   }
 }
 

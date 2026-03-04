@@ -171,6 +171,15 @@ export const formsApi = {
     throw new Error(response.error || 'Failed to submit response');
   },
 
+  /** Submit as logged-in user so response is linked to respondentId (for community facilitators etc.) */
+  async submitResponseAuthenticated(responseData: CreateFormResponseDto): Promise<FormResponse> {
+    const response = await apiClient.post('/forms/responses/authenticated', responseData);
+    if (response.success && response.data) {
+      return response.data as FormResponse;
+    }
+    throw new Error(response.error || 'Failed to submit response');
+  },
+
   async getFormResponses(
     projectId: string, 
     formId: string,

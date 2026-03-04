@@ -23,6 +23,8 @@ import { organizationalGoals } from '@/lib/organizationalGoals';
 import { strategicPlanApi } from '@/lib/api/strategicPlanApi';
 import { useProjects } from '@/contexts/ProjectsContext';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { createEnhancedPermissionManager } from '@/lib/permissions-v2';
 import { Project, Activity } from '@/types/dashboard';
 
 interface SubGoal {
@@ -42,10 +44,12 @@ interface SubGoal {
 }
 
 interface ActivityLink {
-  projectId: string;
-  projectName: string;
-  activityId: string;
-  activityTitle: string;
+  projectId?: string;
+  projectName?: string;
+  activityId?: string;
+  activityTitle?: string;
+  /** When set, link is to an organisation-wide activity */
+  strategicActivityId?: string;
   contribution: number;
   status: 'contributing' | 'at-risk' | 'not-contributing';
   code?: string;
@@ -78,6 +82,9 @@ export function StrategicPlanEdit() {
 
   const { projects, getProjectActivities } = useProjects();
   const { addNotification } = useNotifications();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const permissionManager = createEnhancedPermissionManager({ user, isAuthenticated, isLoading: authLoading });
+  const canDeletePlan = permissionManager.hasPermission('strategic-plan:delete');
   const [goals, setGoals] = useState<StrategicGoal[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -90,6 +97,7 @@ export function StrategicPlanEdit() {
   const [selectedPlanId, setSelectedPlanIdState] = useState<string | null>(planIdFromUrl || null);
   const [availableActivities, setAvailableActivities] = useState<Record<string, Activity[]>>({});
   const [planKpis, setPlanKpis] = useState<{ id: string; name?: string; unit: string }[]>([]);
+  const [planActivities, setPlanActivities] = useState<Array<{ id: string; title: string; code?: string }>>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -214,10 +222,11 @@ export function StrategicPlanEdit() {
             name: (subGoal.strategicKpi || subGoal.kpi)?.name
           },
           activityLinks: (subGoal.activityLinks || []).map((activity: any) => ({
-            projectId: activity.projectId,
-            projectName: activity.projectName,
-            activityId: activity.activityId,
-            activityTitle: activity.activityTitle,
+            projectId: activity.projectId || undefined,
+            projectName: activity.projectName || undefined,
+            activityId: activity.activityId || undefined,
+            activityTitle: activity.activityTitle || (activity.strategicActivity?.title),
+            strategicActivityId: activity.strategicActivityId || activity.strategicActivity?.id,
             contribution: activity.contribution,
             status: activity.status?.toLowerCase?.()?.replace('_', '-') ?? 'contributing',
             code: activity.code,
@@ -236,6 +245,8 @@ export function StrategicPlanEdit() {
       setGoals(convertedGoals);
       const kpiList = await strategicPlanApi.getKpisByPlanId(planId);
       setPlanKpis(kpiList.map(k => ({ id: k.id, name: k.name, unit: k.unit })));
+      const activityList = (plan as any).activities || await strategicPlanApi.getActivitiesByPlanId(planId);
+      setPlanActivities(activityList.map((a: any) => ({ id: a.id, title: a.title, code: a.code })));
       addNotification({
         type: 'success',
         title: 'Strategic Plan Loaded',
@@ -249,6 +260,7 @@ export function StrategicPlanEdit() {
       setPlanTitle('');
       setPlanDescription('');
       setPlanKpis([]);
+      setPlanActivities([]);
       loadStaticData();
       addNotification({
         type: 'warning',
@@ -382,6 +394,7 @@ export function StrategicPlanEdit() {
       projectName: '',
       activityId: '',
       activityTitle: '',
+      strategicActivityId: undefined,
       contribution: 0,
       status: 'contributing',
       timeframeQ1: false,
@@ -434,6 +447,18 @@ export function StrategicPlanEdit() {
                           if (selectedActivity) {
                             updatedActivity.activityTitle = selectedActivity.title;
                           }
+                        }
+                        // If switching to org-wide activity, clear project fields
+                        if (field === 'strategicActivityId' && value) {
+                          updatedActivity.projectId = '';
+                          updatedActivity.projectName = '';
+                          updatedActivity.activityId = '';
+                          const orgActivity = planActivities.find(a => a.id === value);
+                          if (orgActivity) updatedActivity.activityTitle = orgActivity.title;
+                        }
+                        // If switching to project (projectId set), clear org activity
+                        if (field === 'projectId' && value) {
+                          updatedActivity.strategicActivityId = undefined;
                         }
                         
                         return updatedActivity;
@@ -490,12 +515,14 @@ export function StrategicPlanEdit() {
       return;
     }
 
-    // Validate that all activity links have both project and activity selected
+    // Validate that each activity link is either project+activity or organisation-wide activity
     const hasIncompleteActivityLinks = goals.some(goal => 
       goal.subgoals.some(subGoal => 
-        subGoal.activityLinks.some(activity => 
-          !activity.projectId || !activity.activityId
-        )
+        subGoal.activityLinks.some(activity => {
+          const hasProject = activity.projectId && activity.activityId;
+          const hasOrg = !!activity.strategicActivityId;
+          return !hasProject && !hasOrg;
+        })
       )
     );
 
@@ -503,7 +530,7 @@ export function StrategicPlanEdit() {
       addNotification({
         type: 'error',
         title: 'Incomplete Activity Links',
-        message: 'All activity links must have both a project and activity selected.',
+        message: 'Each activity link must have either a project activity or an organisation-wide activity selected.',
         duration: 4000,
       });
       return;
@@ -669,7 +696,7 @@ export function StrategicPlanEdit() {
                   </SelectContent>
                 </Select>
               </div>
-              {selectedPlanId && !isEditing && (
+              {selectedPlanId && !isEditing && canDeletePlan && (
                 <Button
                   type="button"
                   variant="destructive"
@@ -990,64 +1017,122 @@ export function StrategicPlanEdit() {
                                 )}
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label>Project</Label>
-                                  <Select
-                                    value={activity.projectId}
-                                    onValueChange={(value) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'projectId', value)}
-                                    disabled={!isEditing}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select a project" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {projects.map((project) => (
-                                        <SelectItem key={project.id} value={project.id}>
-                                          {project.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Project Name</Label>
-                                  <Input
-                                    value={activity.projectName}
-                                    readOnly
-                                    placeholder="Auto-filled from project selection"
-                                    className="bg-gray-50"
-                                    disabled={!isEditing}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Activity</Label>
-                                  <Select
-                                    value={activity.activityId}
-                                    onValueChange={(value) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'activityId', value)}
-                                    disabled={!isEditing || !activity.projectId}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder={activity.projectId ? "Select an activity" : "Select a project first"} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {activity.projectId && availableActivities[activity.projectId]?.map((activityItem) => (
-                                        <SelectItem key={activityItem.id} value={activityItem.id}>
-                                          {activityItem.title}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Activity Title</Label>
-                                  <Input
-                                    value={activity.activityTitle}
-                                    readOnly
-                                    placeholder="Auto-filled from activity selection"
-                                    className="bg-gray-50"
-                                    disabled={!isEditing}
-                                  />
-                                </div>
+                                {planActivities.length > 0 && (
+                                  <div className="space-y-2 md:col-span-2">
+                                    <Label>Source</Label>
+                                    <Select
+                                      value={activity.strategicActivityId ? 'org' : 'project'}
+                                      onValueChange={(value) => {
+                                        if (value === 'org' && planActivities[0])
+                                          updateActivityLink(goal.id, subGoal.id, activityIndex, 'strategicActivityId', planActivities[0].id);
+                                        else if (value === 'project')
+                                          updateActivityLink(goal.id, subGoal.id, activityIndex, 'projectId', '');
+                                      }}
+                                      disabled={!isEditing}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="project">Project activity</SelectItem>
+                                        <SelectItem value="org">Organisation-wide activity</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                                {activity.strategicActivityId ? (
+                                  <>
+                                    <div className="space-y-2 md:col-span-2">
+                                      <Label>Organisation-wide activity</Label>
+                                      <Select
+                                        value={activity.strategicActivityId}
+                                        onValueChange={(value) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'strategicActivityId', value)}
+                                        disabled={!isEditing}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Select organisation activity" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {planActivities.map((oa) => (
+                                            <SelectItem key={oa.id} value={oa.id}>
+                                              {oa.title}{oa.code ? ` (${oa.code})` : ''}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2 md:col-span-2">
+                                      <Label>Activity title</Label>
+                                      <Input
+                                        value={activity.activityTitle || ''}
+                                        readOnly
+                                        className="bg-muted/50"
+                                        disabled={!isEditing}
+                                      />
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="space-y-2">
+                                      <Label>Project</Label>
+                                      <Select
+                                        value={activity.projectId || ''}
+                                        onValueChange={(value) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'projectId', value)}
+                                        disabled={!isEditing}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Select a project" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {projects.map((project) => (
+                                            <SelectItem key={project.id} value={project.id}>
+                                              {project.name}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label>Project Name</Label>
+                                      <Input
+                                        value={activity.projectName || ''}
+                                        readOnly
+                                        placeholder="Auto-filled from project selection"
+                                        className="bg-gray-50"
+                                        disabled={!isEditing}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label>Activity</Label>
+                                      <Select
+                                        value={activity.activityId || ''}
+                                        onValueChange={(value) => updateActivityLink(goal.id, subGoal.id, activityIndex, 'activityId', value)}
+                                        disabled={!isEditing || !activity.projectId}
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue placeholder={activity.projectId ? "Select an activity" : "Select a project first"} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {activity.projectId && availableActivities[activity.projectId]?.map((activityItem) => (
+                                            <SelectItem key={activityItem.id} value={activityItem.id}>
+                                              {activityItem.title}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label>Activity Title</Label>
+                                      <Input
+                                        value={activity.activityTitle || ''}
+                                        readOnly
+                                        placeholder="Auto-filled from activity selection"
+                                        className="bg-gray-50"
+                                        disabled={!isEditing}
+                                      />
+                                    </div>
+                                  </>
+                                )}
                                 <div className="space-y-2">
                                   <Label>Contribution (%)</Label>
                                   <Input

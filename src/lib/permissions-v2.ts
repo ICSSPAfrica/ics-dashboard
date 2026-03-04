@@ -19,6 +19,7 @@ export const ROLE_DEFINITIONS = {
   'finance-officer': { level: 6, description: 'Finance Officer - All Organizational Data, KPIs, Finance, Cross-Regional Analytics' },
   'meal-officer': { level: 6, description: 'MEAL Officer - Metrics, QA, Tool Results, Assessment Data, Performance Indicators' },
   'communications': { level: 6, description: 'Communications - Regional Aggregates, Cross-Country Data, Performance Metrics' },
+  'community-facilitator': { level: 6, description: 'Community Facilitator - Single project, view only own form submissions, submit via public forms' },
 } as const;
 
 // Backend permission definitions (matching auth-seed.ts)
@@ -85,6 +86,15 @@ export const PERMISSION_DEFINITIONS = {
   'kobo:update-regional': { resource: 'kobo', action: 'update', scope: 'regional' },
   'kobo:read-project': { resource: 'kobo', action: 'read', scope: 'project' },
   'kobo:update-project': { resource: 'kobo', action: 'update', scope: 'project' },
+
+  // Forms (project-scoped) - list and read-own for community facilitators
+  'forms:list-project': { resource: 'forms', action: 'list', scope: 'project' },
+  'forms:responses-read-own-project': { resource: 'forms', action: 'read', scope: 'own-project' },
+
+  // Strategic plan (organization-level)
+  'strategic-plan:read': { resource: 'strategic-plan', action: 'read', scope: 'global' },
+  'strategic-plan:update': { resource: 'strategic-plan', action: 'update', scope: 'global' },
+  'strategic-plan:delete': { resource: 'strategic-plan', action: 'delete', scope: 'global' },
 } as const;
 
 // Role-based permission mappings (matching auth-seed.ts)
@@ -97,7 +107,8 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'finance:read', 'finance:update',
     'kpis:read', 'kpis:update',
     'reports:read', 'reports:create', 'reports:update',
-    'analytics:read'
+    'analytics:read',
+    'strategic-plan:read', 'strategic-plan:update', 'strategic-plan:delete'
   ],
 
   'meal-coordinator': [
@@ -105,7 +116,8 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'projects:read',
     'kpis:read', 'kpis:update',
     'reports:read', 'reports:create', 'reports:update',
-    'analytics:read'
+    'analytics:read',
+    'strategic-plan:read', 'strategic-plan:update', 'strategic-plan:delete'
   ],
 
   'finance-operations-manager': [
@@ -166,6 +178,12 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     'projects:read-regional',
     'reports:read-regional',
     'analytics:read-regional'
+  ],
+
+  'community-facilitator': [
+    'projects:read-project',
+    'forms:list-project',
+    'forms:responses-read-own-project'
   ],
 } as const;
 
@@ -502,9 +520,14 @@ export class EnhancedPermissionManager {
 
   /**
    * Forms-specific helpers
+   * Community facilitators have forms:list-project and forms:responses-read-own-project only.
    */
   canViewForms(projectId: string): boolean {
-    return this.canAccessProjectComponent(projectId, 'forms', 'read');
+    return (
+      this.canAccessProjectComponent(projectId, 'forms', 'read') ||
+      this.hasProjectPermission('forms', 'list', projectId) ||
+      this.hasProjectPermission('forms', 'responses-read-own', projectId)
+    );
   }
 
   canEditForms(projectId: string): boolean {
@@ -512,7 +535,12 @@ export class EnhancedPermissionManager {
   }
 
   canViewFormResponses(projectId: string): boolean {
-    return this.hasProjectPermission('forms', 'responses-read', projectId) || this.hasResourcePermission('forms', 'responses-read', 'regional') || this.hasResourcePermission('forms', 'responses-read', 'global');
+    return (
+      this.hasProjectPermission('forms', 'responses-read', projectId) ||
+      this.hasProjectPermission('forms', 'responses-read-own', projectId) ||
+      this.hasResourcePermission('forms', 'responses-read', 'regional') ||
+      this.hasResourcePermission('forms', 'responses-read', 'global')
+    );
   }
 
   canEditFormResponses(projectId: string): boolean {

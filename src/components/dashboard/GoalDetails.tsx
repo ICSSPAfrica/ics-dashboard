@@ -232,11 +232,15 @@ export function GoalDetails({ goal: propGoal, goals, subGoal: propSubGoal }: Goa
     );
   }
 
-  // Generate project contribution data for pie chart
+  // Generate project contribution data for pie chart.
+  // Skip activity links that are not tied to a specific project (e.g. org-wide activities).
   const projectContributions = new Map<string, { name: string; value: number; activities: number }>();
   
   goal.subgoals.forEach((subGoal: StrategicSubGoal) => {
     subGoal.activityLinks.forEach((activity: StrategicActivityLink) => {
+      if (!activity.projectId || !activity.projectName) {
+        return;
+      }
       const existing = projectContributions.get(activity.projectId);
       if (existing) {
         existing.value += activity.contribution;

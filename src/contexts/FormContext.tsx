@@ -3,6 +3,7 @@ import { Form, FormResponse, FormQuestion } from '../components/dashboard/form-c
 import { formsApi, CreateFormDto, CreateFormResponseDto, UpdateFormResponseDto } from '../lib/api/formsApi';
 import { toast } from '@/hooks/use-toast';
 import { Project } from '../types/dashboard';
+import { useAuth } from './AuthContext';
 
 // Media types matching original system
 export interface MediaMetadata {
@@ -178,6 +179,8 @@ export function FormProvider({ children }: FormProviderProps) {
   const [mediaFiles, setMediaFiles] = useState<StoredMediaFile[]>([]);
   const [isMediaLoading, setIsMediaLoading] = useState(false);
   
+  const { isAuthenticated } = useAuth();
+
   // Offline support state
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [offlineQueue, setOfflineQueue] = useState<OfflineQueueItem[]>([]);
@@ -783,13 +786,16 @@ export function FormProvider({ children }: FormProviderProps) {
         return null;
       }
 
-      const submittedResponse = await formsApi.submitResponse({
+      const submitPayload = {
         formId: response.formId,
         respondentId: response.respondentId,
         respondentEmail: response.respondentEmail,
         isComplete: response.isComplete,
         data: response.data
-      });
+      };
+      const submittedResponse = isAuthenticated
+        ? await formsApi.submitResponseAuthenticated(submitPayload)
+        : await formsApi.submitResponse(submitPayload);
 
       // Update local cache
       setAllFormResponses(prev => ({
@@ -822,7 +828,7 @@ export function FormProvider({ children }: FormProviderProps) {
       });
       return null;
     }
-  }, [isOnline, addToOfflineQueue]);
+  }, [isOnline, addToOfflineQueue, isAuthenticated]);
 
   const updateFormResponse = useCallback(async (projectId: string, formId: string, responseId: string, updates: UpdateFormResponseDto): Promise<FormResponse | null> => {
     try {

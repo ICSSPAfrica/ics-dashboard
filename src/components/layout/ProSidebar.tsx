@@ -180,6 +180,12 @@ export function ProSidebar() {
                 >
                   KPIs
                 </MenuItem>
+                <MenuItem 
+                  component={<Link to="/dashboard/strategic-plan/activities" onClick={handleCloseSidebar} />}
+                  className="text-sm"
+                >
+                  Organisation activities
+                </MenuItem>
               </SubMenu>
             )}
             <SubMenu 
