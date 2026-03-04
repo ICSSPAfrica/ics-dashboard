@@ -9,6 +9,12 @@ export interface StrategicKPI {
   name?: string;
 }
 
+/** Annual target for one plan year */
+export interface KpiAnnualTarget {
+  year: number;
+  targetValue: number;
+}
+
 /** Plan-level KPI (managed in KPIs tab) */
 export interface PlanKpi {
   id: string;
@@ -17,6 +23,9 @@ export interface PlanKpi {
   targetValue: number;
   unit: string;
   type: string;
+  baseYear?: number | null;
+  baseYearValue?: number | null;
+  annualTargets?: KpiAnnualTarget[];
 }
 
 /** Organisation-wide activity (plan-level, can be linked across the plan) */
@@ -219,12 +228,36 @@ class StrategicPlanApi {
     return response.data as PlanKpi[];
   }
 
-  async createKpi(planId: string, data: { name?: string; currentValue: number; targetValue: number; unit: string; type?: string }): Promise<PlanKpi> {
+  /** Single KPI with plan years (for edit page) */
+  async getKpiById(kpiId: string): Promise<PlanKpi & { strategicPlan?: { id: string; title: string; startYear: number; endYear: number } }> {
+    const response = await apiClient.get(`${this.baseUrl}/kpis/${kpiId}`);
+    return response.data as PlanKpi & { strategicPlan?: { id: string; title: string; startYear: number; endYear: number } };
+  }
+
+  async createKpi(planId: string, data: {
+    name?: string;
+    currentValue: number;
+    targetValue: number;
+    unit: string;
+    type?: string;
+    baseYear?: number;
+    baseYearValue?: number;
+    annualTargets?: KpiAnnualTarget[];
+  }): Promise<PlanKpi> {
     const response = await apiClient.post(`${this.baseUrl}/${planId}/kpis`, data);
     return response.data as PlanKpi;
   }
 
-  async updateKpi(kpiId: string, data: { name?: string; currentValue?: number; targetValue?: number; unit?: string; type?: string }): Promise<PlanKpi> {
+  async updateKpi(kpiId: string, data: {
+    name?: string;
+    currentValue?: number;
+    targetValue?: number;
+    unit?: string;
+    type?: string;
+    baseYear?: number | null;
+    baseYearValue?: number | null;
+    annualTargets?: KpiAnnualTarget[];
+  }): Promise<PlanKpi> {
     const response = await apiClient.patch(`${this.baseUrl}/kpis/${kpiId}`, data);
     return response.data as PlanKpi;
   }

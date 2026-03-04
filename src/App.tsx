@@ -29,6 +29,7 @@ import { GoalDetails } from '@/components/dashboard/GoalDetails';
 import { StrategicPlanCreate } from '@/components/dashboard/StrategicPlanCreate';
 import { StrategicPlanEdit } from '@/components/dashboard/StrategicPlanEdit';
 import { StrategicPlanKpis } from '@/components/dashboard/StrategicPlanKpis';
+import { StrategicPlanKpiEdit } from '@/components/dashboard/StrategicPlanKpiEdit';
 import { StrategicPlanActivities } from '@/components/dashboard/StrategicPlanActivities';
 import { Profile } from '@/components/dashboard/Profile';
 import { PublicFormFiller } from '@/components/public/PublicFormFiller';
@@ -182,6 +183,7 @@ function AppWithNotifications() {
                           <Route path="strategic-plan/create" element={<StrategicPlanCreate />} />
                           <Route path="strategic-plan/edit" element={<StrategicPlanEdit />} />
                           <Route path="strategic-plan/kpis" element={<StrategicPlanKpis />} />
+                          <Route path="strategic-plan/kpis/edit/:kpiId" element={<StrategicPlanKpiEdit />} />
                           <Route path="strategic-plan/activities" element={<StrategicPlanActivities />} />
                           <Route path="feedback/*" element={<FeedbackRoutes projectId="organization" projectName="ICS Organization" />} />
                           {/* Admin-only project creation */}
