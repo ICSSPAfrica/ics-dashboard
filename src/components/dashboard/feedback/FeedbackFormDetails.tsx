@@ -89,7 +89,7 @@ const FeedbackFormDetails: React.FC = () => {
   }
 
   const totalSubmissions = formSubmissions.length;
-  const resolvedSubmissions = formSubmissions.filter(s => s.status === 'RESOLVED').length;
+  const resolvedSubmissions = formSubmissions.filter(s => s.status === 'RESOLVED' || s.status === 'CLOSED').length;
   const pendingSubmissions = formSubmissions.filter(s => s.status === 'SUBMITTED' || s.status === 'ACKNOWLEDGED').length;
   const inProgressSubmissions = formSubmissions.filter(s => s.status === 'IN_PROGRESS').length;
 
@@ -106,20 +106,25 @@ const FeedbackFormDetails: React.FC = () => {
     }
   };
 
-  // Helper function to calculate average resolution time
+  // Helper function to calculate average resolution/closure time (RESOLVED or CLOSED)
   function calculateAverageResolutionTime(submissions: FeedbackSubmission[]): string {
-    const resolvedSubmissions = submissions.filter(s => s.status === 'RESOLVED' && s.resolvedAt);
-    if (resolvedSubmissions.length === 0) return 'N/A';
-    
-    const totalDays = resolvedSubmissions.reduce((sum, submission) => {
+    const completed = submissions.filter(s => {
+      if (s.status === 'RESOLVED' && s.resolvedAt) return true;
+      if (s.status === 'CLOSED' && s.closedAt) return true;
+      return false;
+    });
+    if (completed.length === 0) return 'N/A';
+
+    const totalDays = completed.reduce((sum, submission) => {
       const submittedAt = new Date(submission.submittedAt);
-      const resolvedAt = new Date(submission.resolvedAt!);
-      const diffTime = Math.abs(resolvedAt.getTime() - submittedAt.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      const endAt = (submission.status === 'RESOLVED' && submission.resolvedAt)
+        ? new Date(submission.resolvedAt)
+        : new Date(submission.closedAt!);
+      const diffDays = Math.ceil(Math.abs(endAt.getTime() - submittedAt.getTime()) / (1000 * 60 * 60 * 24));
       return sum + diffDays;
     }, 0);
-    
-    const averageDays = (totalDays / resolvedSubmissions.length).toFixed(1);
+
+    const averageDays = (totalDays / completed.length).toFixed(1);
     return `${averageDays} days`;
   }
 

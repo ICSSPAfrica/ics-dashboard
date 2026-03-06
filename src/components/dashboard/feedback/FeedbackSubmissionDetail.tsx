@@ -370,32 +370,107 @@ export function FeedbackSubmissionDetail({ submissionId, onBack }: FeedbackSubmi
         </TabsContent>
 
         <TabsContent value="history" className="space-y-6">
+          {/* Status change history from feedback_status_history */}
           <Card>
             <CardHeader>
-              <CardTitle>Resolution History</CardTitle>
+              <CardTitle>Status History</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-            {(displayData.internalNotes || []).map((note) => (
-              <div key={note.id} className="flex items-start gap-3 p-3 border rounded-lg">
-                <div className="p-2 bg-gray-100 rounded-full">
-                  <MessageSquare className="w-4 h-4" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium">Internal Note</span>
-                    <span className="text-xs text-gray-500">
-                      {new Date(note.createdAt).toLocaleString()}
-                    </span>
+              {(() => {
+                const history = [...(submission.statusHistory || [])].sort(
+                  (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                );
+                if (history.length === 0) {
+                  return <p className="text-sm text-gray-500">No status changes recorded yet.</p>;
+                }
+
+                const getStatusIcon = (status: string) => {
+                  switch (status) {
+                    case 'RESOLVED': return <CheckCircle className="w-4 h-4 text-green-600" />;
+                    case 'CLOSED': return <XCircle className="w-4 h-4 text-gray-600" />;
+                    case 'ESCALATED': return <Flag className="w-4 h-4 text-red-600" />;
+                    case 'ACKNOWLEDGED': return <Eye className="w-4 h-4 text-blue-600" />;
+                    case 'IN_PROGRESS': return <AlertCircle className="w-4 h-4 text-orange-600" />;
+                    default: return <MessageSquare className="w-4 h-4 text-gray-600" />;
+                  }
+                };
+
+                const getStatusLabel = (status: string) =>
+                  status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+                return (
+                  <div className="space-y-4">
+                    {history.map((entry, index) => (
+                      <div key={entry.id} className="flex items-start gap-3">
+                        <div className="flex flex-col items-center">
+                          <div className={`p-2 rounded-full ${index === 0 ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                            {getStatusIcon(entry.status)}
+                          </div>
+                          {index < history.length - 1 && (
+                            <div className="w-px h-6 bg-gray-200 mt-1" />
+                          )}
+                        </div>
+                        <div className="flex-1 pb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {entry.previousStatus && (
+                              <>
+                                <Badge variant="outline" className="text-xs">{getStatusLabel(entry.previousStatus)}</Badge>
+                                <span className="text-xs text-gray-400">→</span>
+                              </>
+                            )}
+                            <Badge variant="default" className="text-xs">{getStatusLabel(entry.status)}</Badge>
+                            <span className="text-xs text-gray-500">
+                              {new Date(entry.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          {entry.reason && (
+                            <p className="text-sm text-gray-600 mt-1">{entry.reason}</p>
+                          )}
+                          {entry.details && (
+                            <p className="text-sm text-gray-500 mt-0.5">{entry.details}</p>
+                          )}
+                          <div className="flex items-center gap-4 text-xs text-gray-500 mt-1">
+                            <span>by {entry.changedByName || entry.changedBy}</span>
+                            {entry.assignedTo && <span>assigned to {entry.assignedTo}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <p className="text-sm text-gray-600">{note.content}</p>
-                  <p className="text-xs text-gray-500 mt-1">by {note.authorName}</p>
-                </div>
-              </div>
-            ))}
-              </div>
+                );
+              })()}
             </CardContent>
           </Card>
+
+          {/* Internal notes */}
+          {(displayData.internalNotes || []).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Internal Notes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {displayData.internalNotes.map((note) => (
+                    <div key={note.id} className="flex items-start gap-3 p-3 border rounded-lg">
+                      <div className="p-2 bg-gray-100 rounded-full">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">Internal Note</span>
+                          <span className="text-xs text-gray-500">
+                            {new Date(note.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">{note.content}</p>
+                        <p className="text-xs text-gray-500 mt-1">by {note.authorName}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

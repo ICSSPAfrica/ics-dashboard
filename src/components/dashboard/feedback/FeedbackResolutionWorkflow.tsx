@@ -88,39 +88,52 @@ export function FeedbackResolutionWorkflow({
 
   const currentStatusInfo = getStatusInfo(currentStatus);
 
+  const [statusError, setStatusError] = useState<string | null>(null);
+
   const handleStatusUpdate = async () => {
     if (newStatus) {
+      setStatusError(null);
       try {
-        // Update status via context
         await updateSubmissionStatus(submissionId, newStatus, assignTo === UNASSIGNED_VALUE ? undefined : assignTo);
         
-        // Add note if provided
         if (resolutionNotes.trim()) {
           await addNote(submissionId, {
             content: resolutionNotes,
-            authorId: 'current-user', // In real app, get from auth context
+            authorId: 'current-user',
             authorName: 'Current User',
             isInternal: true
           });
         }
         
-        // Call parent callback
         onStatusUpdate(newStatus, resolutionNotes, assignTo === UNASSIGNED_VALUE ? undefined : assignTo);
         
-        // Reset form
         setNewStatus('');
         setResolutionNotes('');
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error updating status:', error);
+        const msg = error?.message || 'Failed to update status. Please try again.';
+        setStatusError(msg);
       }
     }
   };
 
 
-  const getNextStatusOptions = () => {
-    const currentIndex = statusOptions.findIndex(option => option.value === currentStatus);
-    return statusOptions.slice(currentIndex + 1);
+  const allowedTransitions: Record<string, string[]> = {
+    SUBMITTED:    ['ACKNOWLEDGED', 'IN_PROGRESS', 'ESCALATED', 'CLOSED'],
+    ACKNOWLEDGED: ['IN_PROGRESS', 'ESCALATED', 'CLOSED'],
+    IN_PROGRESS:  ['RESOLVED', 'ESCALATED', 'CLOSED'],
+    ESCALATED:    ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+    RESOLVED:     ['CLOSED'],
+    CLOSED:       [],
   };
+
+  const getNextStatusOptions = () => {
+    const allowed = allowedTransitions[currentStatus] || [];
+    return statusOptions.filter(option => allowed.includes(option.value));
+  };
+
+  const isTransitionAllowed = (target: string) =>
+    (allowedTransitions[currentStatus] || []).includes(target);
 
   return (
     <div className="space-y-6">
@@ -210,7 +223,10 @@ export function FeedbackResolutionWorkflow({
               rows={3}
             />
           </div>
-          <Button onClick={handleStatusUpdate} disabled={!newStatus}>
+          {statusError && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{statusError}</p>
+          )}
+          <Button onClick={handleStatusUpdate} disabled={!newStatus || currentStatus === 'CLOSED'}>
             Update Status
           </Button>
         </CardContent>
@@ -223,38 +239,72 @@ export function FeedbackResolutionWorkflow({
           <CardTitle>Quick Actions</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setNewStatus('ACKNOWLEDGED');
-                setResolutionNotes('Submission acknowledged and under review.');
-              }}
-            >
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Acknowledge
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setNewStatus('IN_PROGRESS');
-                setResolutionNotes('Work has begun on resolving this issue.');
-              }}
-            >
-              <AlertCircle className="w-4 h-4 mr-2" />
-              Start Work
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setNewStatus('RESOLVED');
-                setResolutionNotes('Issue has been resolved successfully.');
-              }}
-            >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Mark Resolved
-            </Button>
-          </div>
+          {currentStatus === 'CLOSED' ? (
+            <p className="text-sm text-gray-500">This submission is closed. No further actions available.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {isTransitionAllowed('ACKNOWLEDGED') && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewStatus('ACKNOWLEDGED');
+                    setResolutionNotes('Submission acknowledged and under review.');
+                  }}
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Acknowledge
+                </Button>
+              )}
+              {isTransitionAllowed('IN_PROGRESS') && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewStatus('IN_PROGRESS');
+                    setResolutionNotes('Work has begun on resolving this issue.');
+                  }}
+                >
+                  <AlertCircle className="w-4 h-4 mr-2" />
+                  Start Work
+                </Button>
+              )}
+              {isTransitionAllowed('RESOLVED') && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewStatus('RESOLVED');
+                    setResolutionNotes('Issue has been resolved successfully.');
+                  }}
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Mark Resolved
+                </Button>
+              )}
+              {isTransitionAllowed('CLOSED') && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewStatus('CLOSED');
+                    setResolutionNotes('Case closed.');
+                  }}
+                >
+                  <XCircle className="w-4 h-4 mr-2" />
+                  Close
+                </Button>
+              )}
+              {isTransitionAllowed('ESCALATED') && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewStatus('ESCALATED');
+                    setResolutionNotes('Issue escalated for review.');
+                  }}
+                >
+                  <Flag className="w-4 h-4 mr-2" />
+                  Escalate
+                </Button>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
