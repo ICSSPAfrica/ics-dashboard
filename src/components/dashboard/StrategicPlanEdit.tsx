@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Plus, Trash2, Save, ArrowLeft, Edit3, Eye, Calendar } from 'lucide-react';
+import { Plus, Trash2, Save, ArrowLeft, Edit3, Eye, Calendar, Eraser } from 'lucide-react';
 import { organizationalGoals } from '@/lib/organizationalGoals';
 import { strategicPlanApi } from '@/lib/api/strategicPlanApi';
 import { useProjects } from '@/contexts/ProjectsContext';
@@ -100,6 +100,8 @@ export function StrategicPlanEdit() {
   const [planActivities, setPlanActivities] = useState<Array<{ id: string; title: string; code?: string }>>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+  const [isPurging, setIsPurging] = useState(false);
 
   const setSelectedPlanId = useCallback((id: string | null) => {
     setSelectedPlanIdState(id);
@@ -606,13 +608,15 @@ export function StrategicPlanEdit() {
     setIsDeleting(true);
     try {
       await strategicPlanApi.deleteStrategicPlan(selectedPlanId);
+      setDeleteDialogOpen(false);
+      setSelectedPlanId(null);
+      setGoals([]);
       addNotification({
         type: 'success',
         title: 'Strategic Plan Deleted',
         message: 'The plan and all its objectives have been permanently removed.',
         duration: 4000,
       });
-      setDeleteDialogOpen(false);
       await loadPlansList();
     } catch (error) {
       console.error('Error deleting strategic plan:', error);
@@ -624,6 +628,34 @@ export function StrategicPlanEdit() {
       });
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handlePurgeInactive = async () => {
+    setIsPurging(true);
+    try {
+      const { purged } = await strategicPlanApi.purgeInactivePlans();
+      setPurgeDialogOpen(false);
+      addNotification({
+        type: 'success',
+        title: 'Inactive plans purged',
+        message: purged > 0
+          ? `${purged} inactive strategic plan(s) have been permanently deleted.`
+          : 'No inactive plans were found.',
+        duration: 4000,
+      });
+      await loadPlansList();
+    } catch (error: any) {
+      console.error('Error purging inactive plans:', error);
+      const message = error?.message ?? 'Could not purge inactive plans. Please try again.';
+      addNotification({
+        type: 'error',
+        title: 'Purge failed',
+        message,
+        duration: 5000,
+      });
+    } finally {
+      setIsPurging(false);
     }
   };
 
@@ -709,6 +741,19 @@ export function StrategicPlanEdit() {
                   Delete plan
                 </Button>
               )}
+              {!isEditing && canDeletePlan && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPurgeDialogOpen(true)}
+                  disabled={isPurging}
+                  className="flex items-center gap-2"
+                >
+                  <Eraser className="h-4 w-4" />
+                  Purge inactive plans
+                </Button>
+              )}
               {isLoading && (
                 <div className="text-sm text-muted-foreground">Loading plan...</div>
               )}
@@ -733,6 +778,27 @@ export function StrategicPlanEdit() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={purgeDialogOpen} onOpenChange={setPurgeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Purge inactive plans?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all inactive (deactivated) strategic plans from the database. Only plans that are no longer active will be removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPurging}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handlePurgeInactive(); }}
+              disabled={isPurging}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isPurging ? 'Purging...' : 'Purge inactive'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

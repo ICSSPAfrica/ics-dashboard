@@ -223,6 +223,15 @@ class StrategicPlanApi {
     await apiClient.delete(`${this.baseUrl}/${id}`);
   }
 
+  /** Permanently delete all inactive (deactivated) strategic plans. Returns count purged. */
+  async purgeInactivePlans(): Promise<{ purged: number }> {
+    const response = await apiClient.delete<{ purged: number }>(`${this.baseUrl}/purge-inactive`);
+    if (!response.success) {
+      throw new Error(response.error ?? 'Could not purge inactive plans.');
+    }
+    return (response.data ?? { purged: 0 }) as { purged: number };
+  }
+
   async getKpisByPlanId(planId: string): Promise<PlanKpi[]> {
     const response = await apiClient.get(`${this.baseUrl}/${planId}/kpis`);
     return response.data as PlanKpi[];
