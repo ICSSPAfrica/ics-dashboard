@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Send, Save, AlertCircle } from 'lucide-react';
 import { QuestionRenderer } from './QuestionRenderer';
 import { Form, FormQuestion, FormResponse } from '../form-creation-wizard/types';
-import { filterMainQuestions } from './utils/questionUtils';
+import { filterMainQuestions, getNumberQuestionRangeError } from './utils/questionUtils';
 
 import { toast } from '@/hooks/use-toast';
 import { useForm } from '@/contexts/FormContext';
@@ -181,15 +181,22 @@ export function FormPreview({
     
     const newErrors: Record<string, string> = {};
     
-    // Validate main questions
-    currentSection.questions.forEach(question => {
-      if (question.isRequired) {
-        const response = responses[question.id];
-        if (response === undefined || response === '' || response === null ||
-            (Array.isArray(response) && response.length === 0)) {
-          newErrors[question.id] = 'This field is required';
-        }
+    // Validate main questions (same set as rendered in the section)
+    filterMainQuestions(currentSection.questions).forEach(question => {
+      const response = responses[question.id];
+      const empty =
+        response === undefined ||
+        response === '' ||
+        response === null ||
+        (Array.isArray(response) && response.length === 0);
+
+      let fieldError: string | undefined;
+      if (question.isRequired && empty) {
+        fieldError = 'This field is required';
+      } else {
+        fieldError = getNumberQuestionRangeError(question, response);
       }
+      if (fieldError) newErrors[question.id] = fieldError;
     });
 
     // Validate conditional questions

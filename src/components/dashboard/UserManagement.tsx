@@ -94,12 +94,15 @@ export function UserManagement() {
 
   const loadRoles = async () => {
     try {
-      const rolesData = await userManagementService.getAvailableRoles();
+      const rolesData = await userManagementService.getRolesCatalog();
       setRoles(rolesData);
     } catch (error) {
       console.error('Failed to load roles:', error);
     }
   };
+
+  /** Only active roles can be assigned when creating/editing users */
+  const assignableRoles = roles.filter((r) => r.isActive);
 
   const handleCreateUser = async (userData: any) => {
     try {
@@ -411,7 +414,7 @@ export function UserManagement() {
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onSubmit={handleCreateUser}
-        roles={roles}
+        roles={assignableRoles}
       />
 
       <EditUserDialog
@@ -419,7 +422,7 @@ export function UserManagement() {
         onOpenChange={setEditDialogOpen}
         user={selectedUser}
         onSubmit={handleUpdateUser}
-        roles={roles}
+        roles={assignableRoles}
       />
 
       <UserDetailsDialog

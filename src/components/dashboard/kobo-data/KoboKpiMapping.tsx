@@ -22,7 +22,11 @@ export function KoboKpiMapping({ projectId }: KoboKpiMappingProps) {
   const { showSuccess, showError } = useNotification();
   const { getProjectKPIs, dataRefreshTrigger } = useProjects();
   const { user, isAuthenticated, isLoading } = useAuth();
-  const permissionManager = createEnhancedPermissionManager({ user, isAuthenticated, isLoading });
+  const permissionManager = createEnhancedPermissionManager({
+    user,
+    isAuthenticated,
+    isLoading,
+  });
   const canUpdate = permissionManager.hasProjectPermission('kobo', 'update', projectId) ||
     permissionManager.hasResourcePermission('kobo', 'update', 'regional') ||
     permissionManager.hasResourcePermission('kobo', 'update', 'global');

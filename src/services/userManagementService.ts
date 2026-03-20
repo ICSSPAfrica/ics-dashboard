@@ -170,6 +170,15 @@ class UserManagementService {
     return response.data;
   }
 
+  /** All roles visible to the admin (active + inactive) for Roles & Permissions tab */
+  async getRolesCatalog(): Promise<Role[]> {
+    const response = await apiClient.get<Role[]>(`${this.baseUrl}/roles/catalog`);
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to fetch role catalog');
+    }
+    return response.data;
+  }
+
   async createRole(roleData: CreateRoleRequest): Promise<Role> {
     // Backend exposes role creation under user management controller at /users/roles
     const response = await apiClient.post<Role>(`${this.baseUrl}/roles`, roleData);

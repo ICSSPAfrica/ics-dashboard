@@ -18,7 +18,11 @@ import {
 } from 'lucide-react';
 import { Form, FormQuestion } from '@/components/dashboard/form-creation-wizard/types';
 import { QuestionRenderer } from '@/components/dashboard/form-preview/QuestionRenderer';
-import { filterMainQuestions, isConditionalQuestion } from '@/components/dashboard/form-preview/utils/questionUtils';
+import {
+  filterMainQuestions,
+  isConditionalQuestion,
+  getNumberQuestionRangeError,
+} from '@/components/dashboard/form-preview/utils/questionUtils';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { toast } from '@/hooks/use-toast';
 import {
@@ -400,26 +404,39 @@ export function PublicFormFiller({ isEmbedded = false }: PublicFormFillerProps) 
     // Validate each instance of the section
     for (let instanceIndex = 0; instanceIndex < instanceCount; instanceIndex++) {
       filterMainQuestions(currentSection.questions).forEach((question: FormQuestion) => {
+        const questionId = isRepeatable ? getInstanceScopedQuestionId(question.id, instanceIndex) : question.id;
+        const response = responses[questionId];
+
+        const empty =
+          response === undefined ||
+          response === '' ||
+          response === null ||
+          (Array.isArray(response) && response.length === 0);
+
         if (question.isRequired) {
-          const questionId = isRepeatable ? getInstanceScopedQuestionId(question.id, instanceIndex) : question.id;
-          const response = responses[questionId];
-          
           console.log('🔍 Validating question:', {
             questionId,
             questionTitle: question.title,
             isRequired: question.isRequired,
             response,
             responseType: typeof response,
-            isEmpty: response === undefined || response === '' || response === null || (Array.isArray(response) && response.length === 0)
+            isEmpty: empty,
           });
-          
-          if (response === undefined || response === '' || response === null ||
-              (Array.isArray(response) && response.length === 0)) {
-            errors[questionId] = 'This field is required';
-            console.log('❌ Validation error for question:', questionId, question.title);
-          } else {
-            console.log('✅ Question valid:', questionId, question.title);
+        }
+
+        let fieldError: string | undefined;
+        if (question.isRequired && empty) {
+          fieldError = 'This field is required';
+        } else {
+          fieldError = getNumberQuestionRangeError(question, response);
+        }
+        if (fieldError) {
+          errors[questionId] = fieldError;
+          if (question.isRequired || question.type === 'NUMBER') {
+            console.log('❌ Validation error for question:', questionId, question.title, fieldError);
           }
+        } else if (question.isRequired) {
+          console.log('✅ Question valid:', questionId, question.title);
         }
         
         // Validate conditional questions within choice options
@@ -440,17 +457,23 @@ export function PublicFormFiller({ isEmbedded = false }: PublicFormFillerProps) 
               if (isOptionSelected) {
                 // Validate all conditional questions for this option
                 option.conditionalQuestions.forEach((conditionalQuestion: any) => {
-                  if (conditionalQuestion.isRequired) {
-                    const conditionalQuestionId = isRepeatable ? 
-                      getInstanceScopedQuestionId(conditionalQuestion.id, instanceIndex) : 
-                      conditionalQuestion.id;
-                    const conditionalResponse = conditionalResponses[conditionalQuestionId];
-                    
-                    if (conditionalResponse === undefined || conditionalResponse === '' || conditionalResponse === null ||
-                        (Array.isArray(conditionalResponse) && conditionalResponse.length === 0)) {
-                      errors[conditionalQuestionId] = `${conditionalQuestion.title} is required`;
-                    }
+                  const conditionalQuestionId = isRepeatable
+                    ? getInstanceScopedQuestionId(conditionalQuestion.id, instanceIndex)
+                    : conditionalQuestion.id;
+                  const conditionalResponse = conditionalResponses[conditionalQuestionId];
+                  const condEmpty =
+                    conditionalResponse === undefined ||
+                    conditionalResponse === '' ||
+                    conditionalResponse === null ||
+                    (Array.isArray(conditionalResponse) && conditionalResponse.length === 0);
+
+                  let condErr: string | undefined;
+                  if (conditionalQuestion.isRequired && condEmpty) {
+                    condErr = `${conditionalQuestion.title} is required`;
+                  } else {
+                    condErr = getNumberQuestionRangeError(conditionalQuestion as FormQuestion, conditionalResponse);
                   }
+                  if (condErr) errors[conditionalQuestionId] = condErr;
                 });
               }
             }
@@ -502,57 +525,75 @@ export function PublicFormFiller({ isEmbedded = false }: PublicFormFillerProps) 
     // Check each instance of the section
     for (let instanceIndex = 0; instanceIndex < instanceCount; instanceIndex++) {
       filterMainQuestions(currentSection.questions).forEach((question: FormQuestion) => {
+        const questionId = isRepeatable ? getInstanceScopedQuestionId(question.id, instanceIndex) : question.id;
+        const response = responses[questionId];
+
+        const empty =
+          response === undefined ||
+          response === '' ||
+          response === null ||
+          (Array.isArray(response) && response.length === 0);
+
         if (question.isRequired) {
-          const questionId = isRepeatable ? getInstanceScopedQuestionId(question.id, instanceIndex) : question.id;
-          const response = responses[questionId];
-          
           console.log('🔍 Checking question for errors:', {
             questionId,
             questionTitle: question.title,
             response,
-            isEmpty: response === undefined || response === '' || response === null || (Array.isArray(response) && response.length === 0)
+            isEmpty: empty,
           });
-          
-          if (response === undefined || response === '' || response === null ||
-              (Array.isArray(response) && response.length === 0)) {
-            errors.push({
-              questionId: questionId,
-              questionTitle: `${question.title}${isRepeatable ? ` (Instance ${instanceIndex + 1})` : ''}`,
-              error: 'This field is required',
-              instanceIndex: isRepeatable ? instanceIndex : undefined
-            });
-            console.log('❌ Added error for question:', questionId, question.title);
-          }
         }
-        
+
+        let fieldError: string | undefined;
+        if (question.isRequired && empty) {
+          fieldError = 'This field is required';
+        } else {
+          fieldError = getNumberQuestionRangeError(question, response);
+        }
+        if (fieldError) {
+          errors.push({
+            questionId,
+            questionTitle: `${question.title}${isRepeatable ? ` (Instance ${instanceIndex + 1})` : ''}`,
+            error: fieldError,
+            instanceIndex: isRepeatable ? instanceIndex : undefined,
+          });
+          console.log('❌ Added error for question:', questionId, question.title);
+        }
+
         // Check conditional questions within choice options
         if ((question.type === 'SINGLE_CHOICE' || question.type === 'MULTIPLE_CHOICE') && question.options) {
           const choiceQuestion = question as any;
-          const questionId = isRepeatable ? getInstanceScopedQuestionId(question.id, instanceIndex) : question.id;
           const selectedValues = responses[questionId];
           const selectedOptions = Array.isArray(selectedValues) ? selectedValues : [selectedValues];
-          
+
           choiceQuestion.options.forEach((option: any) => {
             if (option.conditionalQuestions && option.conditionalQuestions.length > 0) {
               const isOptionSelected = selectedOptions.includes(option.value);
-              
+
               if (isOptionSelected) {
                 option.conditionalQuestions.forEach((conditionalQuestion: any) => {
-                  if (conditionalQuestion.isRequired) {
-                    const conditionalQuestionId = isRepeatable ? 
-                      getInstanceScopedQuestionId(conditionalQuestion.id, instanceIndex) : 
-                      conditionalQuestion.id;
-                    const conditionalResponse = conditionalResponses[conditionalQuestionId];
-                    
-                    if (conditionalResponse === undefined || conditionalResponse === '' || conditionalResponse === null ||
-                        (Array.isArray(conditionalResponse) && conditionalResponse.length === 0)) {
-                      errors.push({
-                        questionId: conditionalQuestionId,
-                        questionTitle: `${conditionalQuestion.title}${isRepeatable ? ` (Instance ${instanceIndex + 1})` : ''}`,
-                        error: 'This field is required',
-                        instanceIndex: isRepeatable ? instanceIndex : undefined
-                      });
-                    }
+                  const conditionalQuestionId = isRepeatable
+                    ? getInstanceScopedQuestionId(conditionalQuestion.id, instanceIndex)
+                    : conditionalQuestion.id;
+                  const conditionalResponse = conditionalResponses[conditionalQuestionId];
+                  const condEmpty =
+                    conditionalResponse === undefined ||
+                    conditionalResponse === '' ||
+                    conditionalResponse === null ||
+                    (Array.isArray(conditionalResponse) && conditionalResponse.length === 0);
+
+                  let condErr: string | undefined;
+                  if (conditionalQuestion.isRequired && condEmpty) {
+                    condErr = `${conditionalQuestion.title} is required`;
+                  } else {
+                    condErr = getNumberQuestionRangeError(conditionalQuestion as FormQuestion, conditionalResponse);
+                  }
+                  if (condErr) {
+                    errors.push({
+                      questionId: conditionalQuestionId,
+                      questionTitle: `${conditionalQuestion.title}${isRepeatable ? ` (Instance ${instanceIndex + 1})` : ''}`,
+                      error: condErr,
+                      instanceIndex: isRepeatable ? instanceIndex : undefined,
+                    });
                   }
                 });
               }

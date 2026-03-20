@@ -1,4 +1,41 @@
-import { FormQuestion, SingleChoiceQuestion, MultipleChoiceQuestion } from '../../form-creation-wizard/types';
+import { FormQuestion, SingleChoiceQuestion, MultipleChoiceQuestion, NumberQuestion } from '../../form-creation-wizard/types';
+
+/** True when the user has entered a value (NUMBER questions: a finite number). */
+export function isNumberQuestionValueFilled(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return false;
+  if (typeof value === 'number') return !Number.isNaN(value);
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    return !Number.isNaN(n);
+  }
+  return false;
+}
+
+/**
+ * When a NUMBER question has min/max and the value is filled but out of range, return a user-facing message.
+ */
+export function getNumberQuestionRangeError(question: FormQuestion, value: unknown): string | undefined {
+  if (question.type !== 'NUMBER') return undefined;
+  if (!isNumberQuestionValueFilled(value)) return undefined;
+
+  const num = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(num)) return undefined;
+
+  const q = question as NumberQuestion;
+  const hasMin = q.min != null;
+  const hasMax = q.max != null;
+  if (!hasMin && !hasMax) return undefined;
+
+  if (hasMin && num < q.min!) {
+    if (hasMax) return `Enter a number between ${q.min} and ${q.max} (inclusive).`;
+    return `Enter a number of at least ${q.min}.`;
+  }
+  if (hasMax && num > q.max!) {
+    if (hasMin) return `Enter a number between ${q.min} and ${q.max} (inclusive).`;
+    return `Enter a number of at most ${q.max}.`;
+  }
+  return undefined;
+}
 
 /**
  * Helper function to identify if a question is a conditional question

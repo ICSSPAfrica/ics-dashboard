@@ -265,6 +265,24 @@ export const formsApi = {
   },
 
   // ========================================
+  // QUESTION MANAGEMENT
+  // ========================================
+
+  async deleteFormQuestion(
+    projectId: string,
+    formId: string,
+    questionId: string,
+  ): Promise<{ deletedQuestionId: string; deletedResponseCount: number }> {
+    const response = await apiClient.delete(
+      `/forms/projects/${projectId}/forms/${formId}/questions/${questionId}`,
+    );
+    if (response.success && response.data) {
+      return response.data as { deletedQuestionId: string; deletedResponseCount: number };
+    }
+    throw new Error(response.error || 'Failed to delete question');
+  },
+
+  // ========================================
   // FORM ANALYTICS
   // ========================================
 

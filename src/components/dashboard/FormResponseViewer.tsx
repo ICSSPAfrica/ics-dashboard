@@ -994,6 +994,7 @@ export function FormResponseViewer() {
   const permissionManager = createEnhancedPermissionManager({ user, isAuthenticated, isLoading: authLoading });
   const canEdit = projectId ? permissionManager.canEditFormResponses(projectId) : false;
   const canDelete = projectId ? permissionManager.canDeleteFormResponses(projectId) : false;
+  const canExport = projectId ? permissionManager.canExportFormResponses(projectId) : false;
   
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
@@ -1402,7 +1403,15 @@ export function FormResponseViewer() {
 
   const handleExportData = async () => {
     if (!form || !projectId || !formId) return;
-    
+    if (!canExport) {
+      toast({
+        title: 'Export not allowed',
+        description: 'You do not have permission to export form responses for this project.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // Show loading toast
     toast({
       title: "Exporting...",
@@ -1854,10 +1863,12 @@ export function FormResponseViewer() {
           <Badge variant={form.status === 'PUBLISHED' ? 'default' : 'secondary'}>
             {form.status}
           </Badge>
-          <Button onClick={handleExportData} className="flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Export CSV
-          </Button>
+          {canExport && (
+            <Button onClick={handleExportData} className="flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              Export CSV
+            </Button>
+          )}
         </div>
       </div>
 

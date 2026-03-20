@@ -25,10 +25,38 @@ import { useFeedback } from '@/contexts/FeedbackContext';
 import { FeedbackSubmission } from '@/types/feedback';
 import { userManagementService, User } from '@/services/userManagementService';
 
-type DateRangeFilter = 'all' | '30';
+/** Days lookback, or all time */
+export type DateRangeFilter = 'all' | '7' | '14' | '30' | '60' | '90' | '180' | '365';
 
 interface FeedbackResolutionDashboardProps {
   projectId: string;
+}
+
+function getDateRangeConfig(filter: DateRangeFilter): {
+  label: string;
+  start: Date | null;
+  end: Date;
+  prevStart: Date | null;
+  prevEnd: Date | null;
+} {
+  const end = new Date();
+  if (filter === 'all') {
+    return { label: 'All time', start: null, end, prevStart: null, prevEnd: null };
+  }
+  const days = parseInt(filter, 10);
+  const start = new Date(end);
+  start.setDate(start.getDate() - days);
+  start.setHours(0, 0, 0, 0);
+  const prevEnd = new Date(start);
+  const prevStart = new Date(start);
+  prevStart.setDate(prevStart.getDate() - days);
+  return {
+    label: `Last ${days} days`,
+    start,
+    end,
+    prevStart,
+    prevEnd,
+  };
 }
 
 export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDashboardProps) {
@@ -61,46 +89,46 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
     return null;
   };
 
-  // Submissions filtered by date range (last 30 days or all)
+  const rangeCfg = useMemo(() => getDateRangeConfig(dateRange), [dateRange]);
+
+  /** Submissions whose submittedAt falls in the chosen period (all = no cutoff) */
   const filteredSubmissions = useMemo(() => {
-    if (dateRange !== '30') return submissions;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-    return submissions.filter(sub => new Date(sub.submittedAt) >= cutoff);
-  }, [submissions, dateRange]);
-
-  // Calculate real metrics from submissions data
-  const calculateMetrics = (subs: FeedbackSubmission[]) => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-
-    // Filter submissions by time periods
-    const currentMonthSubmissions = subs.filter(sub => {
-      const date = new Date(sub.submittedAt);
-      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+    if (rangeCfg.start === null) return submissions;
+    return submissions.filter(sub => {
+      const d = new Date(sub.submittedAt);
+      return d >= rangeCfg.start! && d <= rangeCfg.end;
     });
+  }, [submissions, rangeCfg]);
 
-    const lastMonthSubmissions = subs.filter(sub => {
-      const date = new Date(sub.submittedAt);
-      return date.getMonth() === lastMonth && date.getFullYear() === lastMonthYear;
-    });
-
-    // Resolution metrics: use current status only (each submission has one final state).
-    // "Resolved this month" = current status is RESOLVED/CLOSED and completion date (resolvedAt/closedAt) is in current month.
-    const resolvedSubmissions = subs.filter(sub => isResolvedOrClosed(sub));
-    const resolvedThisMonth = resolvedSubmissions.filter(sub => {
+  /** Resolved/closed where completion (resolvedAt/closedAt) falls in the chosen period */
+  const resolvedClosedInDuration = useMemo(() => {
+    return submissions.filter(sub => {
+      if (!isResolvedOrClosed(sub)) return false;
       const completed = getCompletionDate(sub);
       if (!completed) return false;
-      return completed.getMonth() === currentMonth && completed.getFullYear() === currentYear;
+      if (rangeCfg.start === null) return true;
+      return completed >= rangeCfg.start && completed <= rangeCfg.end;
     });
+  }, [submissions, rangeCfg]);
 
-    // Calculate average resolution time (uses resolvedAt or closedAt)
-    const averageResolutionTime = calculateAverageResolutionTime(resolvedSubmissions);
+  /** Previous period by submittedAt (same length as current window) — for trends */
+  const previousPeriodSubmissions = useMemo(() => {
+    if (rangeCfg.start === null || rangeCfg.prevStart === null) return [];
+    return submissions.filter(sub => {
+      const d = new Date(sub.submittedAt);
+      return d >= rangeCfg.prevStart! && d < rangeCfg.start!;
+    });
+  }, [submissions, rangeCfg]);
 
-    // Calculate escalation rate (status ESCALATED or escalationLevel not NONE)
+  // Calculate real metrics from submissions data
+  const calculateMetrics = (
+    subs: FeedbackSubmission[],
+    resolvedInDuration: FeedbackSubmission[],
+  ) => {
+    const now = new Date();
+
+    const averageResolutionTime = calculateAverageResolutionTime(resolvedInDuration);
+
     const escalatedSubmissions = subs.filter(sub =>
       sub.status === 'ESCALATED' || (sub.escalationLevel && sub.escalationLevel !== 'NONE')
     );
@@ -108,7 +136,6 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
       ? (escalatedSubmissions.length / subs.length * 100).toFixed(1)
       : '0';
 
-    // Calculate active and overdue cases
     const activeCases = subs.filter(sub =>
       ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(sub.status)
     ).length;
@@ -117,20 +144,20 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
       if (!['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(sub.status)) return false;
       const submittedDate = new Date(sub.submittedAt);
       const daysSinceSubmission = Math.floor((now.getTime() - submittedDate.getTime()) / (1000 * 60 * 60 * 24));
-      return daysSinceSubmission > 7; // Consider overdue after 7 days
+      return daysSinceSubmission > 7;
     }).length;
 
-    // Calculate team workload
     const teamWorkload = calculateTeamWorkload(subs);
 
     return {
       totalSubmissions: subs.length,
-      resolvedThisMonth: resolvedThisMonth.length,
+      resolvedClosedInDuration: resolvedInDuration.length,
       averageResolutionTime,
       escalationRate: `${escalationRate}%`,
+      escalatedCount: escalatedSubmissions.length,
       activeCases,
       overdueCases,
-      teamWorkload
+      teamWorkload,
     };
   };
 
@@ -176,45 +203,93 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
     return totalDays / withDate.length;
   };
 
-  // Calculate trends from real data (current month vs previous month)
-  const calculateTrends = (subs: FeedbackSubmission[]) => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-
-    const currentMonthSubs = subs.filter(sub => {
-      const date = new Date(sub.submittedAt);
-      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
-    });
-    const lastMonthSubs = subs.filter(sub => {
-      const date = new Date(sub.submittedAt);
-      return date.getMonth() === lastMonth && date.getFullYear() === lastMonthYear;
-    });
-
-    const currentCount = currentMonthSubs.length;
-    const previousCount = lastMonthSubs.length;
-    const submissionChange = previousCount > 0 ? ((currentCount - previousCount) / previousCount * 100) : 0;
-
+  /** Calendar month-over-month (all time view) or period vs previous period */
+  const calculateTrends = (
+    currentSubs: FeedbackSubmission[],
+    previousSubs: FeedbackSubmission[],
+    allSubsForCalendar: FeedbackSubmission[],
+    useCalendarMonths: boolean,
+  ) => {
     const isEscalated = (sub: FeedbackSubmission) =>
       sub.status === 'ESCALATED' || (sub.escalationLevel && sub.escalationLevel !== 'NONE');
-    const currentEscalated = currentMonthSubs.filter(isEscalated).length;
-    const previousEscalated = lastMonthSubs.filter(isEscalated).length;
+
+    if (useCalendarMonths) {
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+      const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+      const currentMonthSubs = allSubsForCalendar.filter(sub => {
+        const date = new Date(sub.submittedAt);
+        return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+      });
+      const lastMonthSubs = allSubsForCalendar.filter(sub => {
+        const date = new Date(sub.submittedAt);
+        return date.getMonth() === lastMonth && date.getFullYear() === lastMonthYear;
+      });
+
+      const currentCount = currentMonthSubs.length;
+      const previousCount = lastMonthSubs.length;
+      const submissionChange = previousCount > 0 ? ((currentCount - previousCount) / previousCount * 100) : 0;
+
+      const currentEscalated = currentMonthSubs.filter(isEscalated).length;
+      const previousEscalated = lastMonthSubs.filter(isEscalated).length;
+      const escalationChange = previousEscalated > 0
+        ? ((currentEscalated - previousEscalated) / previousEscalated * 100)
+        : (currentEscalated > 0 ? 100 : 0);
+
+      const currentResolved = allSubsForCalendar.filter(sub => {
+        const d = getCompletionDate(sub);
+        return d != null && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
+      const lastResolved = allSubsForCalendar.filter(sub => {
+        const d = getCompletionDate(sub);
+        return d != null && d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
+      });
+      const currentAvgDays = getAvgResolutionDays(currentResolved);
+      const previousAvgDays = getAvgResolutionDays(lastResolved);
+      let resolutionTimeChange = 0;
+      if (previousAvgDays != null && previousAvgDays > 0 && currentAvgDays != null) {
+        resolutionTimeChange = ((currentAvgDays - previousAvgDays) / previousAvgDays) * 100;
+      }
+
+      return {
+        submissions: {
+          current: currentCount,
+          previous: previousCount,
+          change: submissionChange.toFixed(1),
+          trend: submissionChange >= 0 ? 'up' : 'down',
+        },
+        resolutionTime: {
+          current: currentAvgDays ?? 0,
+          previous: previousAvgDays ?? 0,
+          change: resolutionTimeChange,
+          trend: resolutionTimeChange <= 0 ? 'down' : 'up',
+        },
+        escalations: {
+          current: currentEscalated,
+          previous: previousEscalated,
+          change: escalationChange.toFixed(1),
+          trend: escalationChange <= 0 ? 'down' : 'up',
+        },
+      };
+    }
+
+    const currentCount = currentSubs.length;
+    const previousCount = previousSubs.length;
+    const submissionChange = previousCount > 0 ? ((currentCount - previousCount) / previousCount * 100) : 0;
+
+    const currentEscalated = currentSubs.filter(isEscalated).length;
+    const previousEscalated = previousSubs.filter(isEscalated).length;
     const escalationChange = previousEscalated > 0
       ? ((currentEscalated - previousEscalated) / previousEscalated * 100)
       : (currentEscalated > 0 ? 100 : 0);
 
-    const currentResolved = subs.filter(sub => {
-      const d = getCompletionDate(sub);
-      return d != null && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    });
-    const lastResolved = subs.filter(sub => {
-      const d = getCompletionDate(sub);
-      return d != null && d.getMonth() === lastMonth && d.getFullYear() === lastMonthYear;
-    });
+    const currentResolved = currentSubs.filter(sub => isResolvedOrClosed(sub) && getCompletionDate(sub));
+    const previousResolved = previousSubs.filter(sub => isResolvedOrClosed(sub) && getCompletionDate(sub));
     const currentAvgDays = getAvgResolutionDays(currentResolved);
-    const previousAvgDays = getAvgResolutionDays(lastResolved);
+    const previousAvgDays = getAvgResolutionDays(previousResolved);
     let resolutionTimeChange = 0;
     if (previousAvgDays != null && previousAvgDays > 0 && currentAvgDays != null) {
       resolutionTimeChange = ((currentAvgDays - previousAvgDays) / previousAvgDays) * 100;
@@ -225,25 +300,37 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
         current: currentCount,
         previous: previousCount,
         change: submissionChange.toFixed(1),
-        trend: submissionChange >= 0 ? 'up' : 'down'
+        trend: submissionChange >= 0 ? 'up' : 'down',
       },
       resolutionTime: {
         current: currentAvgDays ?? 0,
         previous: previousAvgDays ?? 0,
         change: resolutionTimeChange,
-        trend: resolutionTimeChange <= 0 ? 'down' : 'up' // down = improvement (faster resolution)
+        trend: resolutionTimeChange <= 0 ? 'down' : 'up',
       },
       escalations: {
         current: currentEscalated,
         previous: previousEscalated,
         change: escalationChange.toFixed(1),
-        trend: escalationChange <= 0 ? 'down' : 'up'
-      }
+        trend: escalationChange <= 0 ? 'down' : 'up',
+      },
     };
   };
 
-  const metrics = useMemo(() => calculateMetrics(filteredSubmissions), [filteredSubmissions]);
-  const trends = useMemo(() => calculateTrends(filteredSubmissions), [filteredSubmissions]);
+  const metrics = useMemo(
+    () => calculateMetrics(filteredSubmissions, resolvedClosedInDuration),
+    [filteredSubmissions, resolvedClosedInDuration],
+  );
+  const trends = useMemo(
+    () =>
+      calculateTrends(
+        filteredSubmissions,
+        previousPeriodSubmissions,
+        submissions,
+        dateRange === 'all',
+      ),
+    [filteredSubmissions, previousPeriodSubmissions, submissions, dateRange],
+  );
 
   // Helper function to format time ago
   const getTimeAgo = (date: Date): string => {
@@ -275,27 +362,22 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
   };
 
   const handleExportReport = () => {
-    const resolved = filteredSubmissions.filter(s => isResolvedOrClosed(s));
-    const active = filteredSubmissions.filter(s => ['SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(s.status));
-    const escalated = filteredSubmissions.filter(s =>
-      s.status === 'ESCALATED' || (s.escalationLevel && s.escalationLevel !== 'NONE')
-    );
+    const trendLabel = dateRange === 'all' ? 'Month-over-Month Trends' : 'Period-over-Period Trends';
 
     const rows: string[] = [
       'Feedback Resolution Report',
       `Generated,${new Date().toISOString()}`,
-      `Period,${dateRange === '30' ? 'Last 30 days' : 'All time'}`,
+      `Period,${rangeCfg.label}`,
       '',
       'Summary',
       `Total Submissions,${metrics.totalSubmissions}`,
-      `Resolved / Closed This Month,${metrics.resolvedThisMonth}`,
+      `Resolved / Closed in chosen duration,${metrics.resolvedClosedInDuration}`,
       `Avg Resolution Time,${metrics.averageResolutionTime}`,
       `Active Cases,${metrics.activeCases}`,
       `Overdue Cases (>7 days),${metrics.overdueCases}`,
-      `Escalation Rate,${metrics.escalationRate}`,
-      `Escalated Count,${escalated.length}`,
+      `Escalated Count,${metrics.escalatedCount}`,
       '',
-      'Month-over-Month Trends',
+      trendLabel,
       `Submissions Change,${trends.submissions.change}%`,
       `Resolution Time Change,${trends.resolutionTime.change.toFixed(1)}%`,
       `Escalation Change,${trends.escalations.change}%`,
@@ -360,13 +442,19 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
         </div>
         <div className="flex items-center gap-2">
           <Select value={dateRange} onValueChange={(v) => setDateRange(v as DateRangeFilter)}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="w-[200px]">
               <Calendar className="w-4 h-4 mr-2" />
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All time</SelectItem>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="14">Last 14 days</SelectItem>
               <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="60">Last 60 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+              <SelectItem value="180">Last 180 days</SelectItem>
+              <SelectItem value="365">Last 365 days</SelectItem>
             </SelectContent>
           </Select>
           <Button onClick={handleExportReport}>
@@ -387,7 +475,8 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
                 <div className="flex items-center gap-1 mt-1">
                   {getTrendIcon(trends.submissions.trend, parseFloat(trends.submissions.change))}
                   <span className={`text-sm ${getTrendColor(trends.submissions.trend, parseFloat(trends.submissions.change))}`}>
-                    {parseFloat(trends.submissions.change) > 0 ? '+' : ''}{trends.submissions.change}% vs last month
+                    {parseFloat(trends.submissions.change) > 0 ? '+' : ''}{trends.submissions.change}%
+                    {dateRange === 'all' ? ' vs last month' : ' vs previous period'}
                   </span>
                 </div>
               </div>
@@ -400,12 +489,17 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-600">Resolved / closed this month</p>
-                <p className="text-2xl font-bold">{metrics.resolvedThisMonth}</p>
+                <p className="text-sm font-medium text-gray-600">
+                  Resolved / closed {dateRange === 'all' ? '(all time)' : `(${rangeCfg.label.toLowerCase()})`}
+                </p>
+                <p className="text-2xl font-bold">{metrics.resolvedClosedInDuration}</p>
                 <div className="flex items-center gap-1 mt-1">
                   <CheckCircle className="w-4 h-4 text-green-600" />
                   <span className="text-sm text-green-600">
-                    {metrics.totalSubmissions > 0 ? Math.round((metrics.resolvedThisMonth / metrics.totalSubmissions) * 100) : 0}% resolution rate
+                    {metrics.totalSubmissions > 0
+                      ? Math.round((metrics.resolvedClosedInDuration / metrics.totalSubmissions) * 100)
+                      : 0}
+                    % vs submissions in period
                   </span>
                 </div>
               </div>
@@ -425,7 +519,8 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
                     <>
                       {getTrendIcon(trends.resolutionTime.trend, trends.resolutionTime.change)}
                       <span className={`text-sm ${getTrendColor(trends.resolutionTime.trend, trends.resolutionTime.change)}`}>
-                        {trends.resolutionTime.change > 0 ? '+' : ''}{trends.resolutionTime.change.toFixed(1)}% vs last month
+                        {trends.resolutionTime.change > 0 ? '+' : ''}{trends.resolutionTime.change.toFixed(1)}%
+                        {dateRange === 'all' ? ' vs last month' : ' vs previous period'}
                       </span>
                     </>
                   ) : (
@@ -447,7 +542,8 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
                 <div className="flex items-center gap-1 mt-1">
                   {getTrendIcon(trends.escalations.trend, parseFloat(trends.escalations.change))}
                   <span className={`text-sm ${getTrendColor(trends.escalations.trend, parseFloat(trends.escalations.change))}`}>
-                    {parseFloat(trends.escalations.change) > 0 ? '+' : ''}{trends.escalations.change}% vs last month
+                    {parseFloat(trends.escalations.change) > 0 ? '+' : ''}{trends.escalations.change}%
+                    {dateRange === 'all' ? ' vs last month' : ' vs previous period'}
                   </span>
                 </div>
               </div>

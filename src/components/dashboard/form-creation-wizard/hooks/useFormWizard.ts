@@ -13,6 +13,7 @@ import {
   clearFormWizardAutoSaveTimeout
 } from '@/lib/formLocalStorageUtils';
 import { useForm } from '@/contexts/FormContext';
+import { formsApi } from '@/lib/api/formsApi';
 import { 
   Form, 
   FormSection, 
@@ -375,7 +376,28 @@ export function useFormWizard(formId?: string) {
     }));
   }, []);
 
-  const removeQuestion = useCallback((sectionId: string, questionId: string) => {
+  const removeQuestion = useCallback(async (sectionId: string, questionId: string) => {
+    const isEditing = wizardState.isEditing;
+    const formId = wizardState.form.id;
+    const projectId = currentProject?.id;
+
+    if (isEditing && projectId && formId) {
+      try {
+        const result = await formsApi.deleteFormQuestion(projectId, formId, questionId);
+        console.log(
+          `🗑️ Deleted question ${questionId} from DB (${result.deletedResponseCount} response rows removed)`,
+        );
+      } catch (err) {
+        console.error('Failed to delete question from DB:', err);
+        toast({
+          title: 'Error',
+          description: 'Failed to delete the question from the server. Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
     setWizardState(prev => ({
       ...prev,
       form: {
@@ -392,7 +414,7 @@ export function useFormWizard(formId?: string) {
       },
       hasUnsavedChanges: true,
     }));
-  }, []);
+  }, [wizardState.isEditing, wizardState.form.id, currentProject?.id]);
 
   const duplicateQuestion = useCallback((sectionId: string, questionId: string) => {
     const section = wizardState.form.sections?.find(s => s.id === sectionId);

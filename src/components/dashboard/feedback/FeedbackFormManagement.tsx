@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/contexts/AuthContext';
+import { createEnhancedPermissionManager } from '@/lib/permissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
@@ -32,6 +34,13 @@ interface FeedbackFormManagementProps {
 export function FeedbackFormManagement({ projectId, projectName = "ICS Organization" }: FeedbackFormManagementProps) {
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const permissionManager = createEnhancedPermissionManager({
+    user,
+    isAuthenticated,
+    isLoading: authLoading,
+  });
+  const canReadFeedback = permissionManager.hasPermission('feedback:read');
   const { forms, categories, submissions, loading } = useFeedback();
 
   // Form configuration with actual form components and metadata
@@ -172,16 +181,18 @@ export function FeedbackFormManagement({ projectId, projectName = "ICS Organizat
             View available feedback forms for {projectName}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/dashboard/feedback/submissions')}>
-            <ClipboardList className="w-4 h-4 mr-2" />
-            View Submissions
-          </Button>
-          <Button variant="outline" onClick={() => navigate('/dashboard/feedback/analytics')}>
-            <TrendingUp className="w-4 h-4 mr-2" />
-            Analytics
-          </Button>
-        </div>
+        {canReadFeedback && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate('/dashboard/feedback/submissions')}>
+              <ClipboardList className="w-4 h-4 mr-2" />
+              View Submissions
+            </Button>
+            <Button variant="outline" onClick={() => navigate('/dashboard/feedback/analytics')}>
+              <TrendingUp className="w-4 h-4 mr-2" />
+              Analytics
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Stats Cards */}

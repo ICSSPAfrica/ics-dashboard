@@ -106,6 +106,7 @@ export function FormCreationWizard({ formId }: FormCreationWizardProps) {
           <QuestionsStep
             sections={form.sections || []}
             availableActivities={availableActivities as ActivityKPIMapping[]}
+            isEditing={wizardState.isEditing}
             onAddQuestion={addQuestion}
             onUpdateQuestion={updateQuestion}
             onRemoveQuestion={removeQuestion}

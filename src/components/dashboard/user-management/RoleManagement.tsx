@@ -28,16 +28,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { 
-  Shield, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Users, 
+import {
+  Shield,
+  Edit,
+  Users,
   Search,
-  Filter,
   Eye,
-  MoreHorizontal
+  MoreHorizontal,
+  Trash2,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -54,13 +52,16 @@ import { useNotifications } from '@/contexts/NotificationContext';
 
 interface RoleManagementProps {
   roles: Role[];
-  onRolesChange: () => void;
+  onRolesChange: () => void | Promise<void>;
 }
 
 export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
   const { addNotification } = useNotifications();
   const [searchTerm, setSearchTerm] = useState('');
   const [levelFilter, setLevelFilter] = useState<'all' | '1-2' | '3-4' | '5-6'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [togglingRoleId, setTogglingRoleId] = useState<string | null>(null);
+  const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [rolePermissions, setRolePermissions] = useState<Record<string, string[]>>({});
@@ -82,18 +83,27 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
     }
   };
 
-  const filteredRoles = roles.filter(role => {
-    const matchesSearch = role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         role.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    
+  const filteredRoles = roles.filter((role) => {
+    const matchesSearch =
+      role.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      role.description?.toLowerCase().includes(searchTerm.toLowerCase());
+
     let matchesLevel = true;
     if (levelFilter !== 'all') {
       const [min, max] = levelFilter.split('-').map(Number);
       matchesLevel = role.level >= min && role.level <= max;
     }
-    
-    return matchesSearch && matchesLevel;
+
+    const matchesStatus =
+      statusFilter === 'all' ||
+      (statusFilter === 'active' && role.isActive) ||
+      (statusFilter === 'inactive' && !role.isActive);
+
+    return matchesSearch && matchesLevel && matchesStatus;
   });
+
+  const catalogActiveCount = roles.filter((r) => r.isActive).length;
+  const catalogInactiveCount = roles.length - catalogActiveCount;
 
   const getRoleBadgeVariant = (level: number) => {
     if (level <= 2) return 'destructive';
@@ -132,25 +142,66 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
     }
   };
 
+  const handleToggleRoleActive = async (role: Role, nextActive: boolean) => {
+    if (role.isActive === nextActive) return;
+    setTogglingRoleId(role.id);
+    try {
+      await userManagementService.updateRole(role.id, { isActive: nextActive });
+      addNotification({
+        type: 'success',
+        title: nextActive ? 'Role activated' : 'Role deactivated',
+        message: `"${role.name}" is now ${nextActive ? 'active' : 'inactive'}. Inactive roles cannot be assigned to new users.`,
+        duration: 4000,
+      });
+      await onRolesChange();
+      setSelectedRole((prev) =>
+        prev?.id === role.id ? { ...prev, isActive: nextActive } : prev,
+      );
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Update failed',
+        message: error?.message || 'Could not update role status.',
+        duration: 5000,
+      });
+    } finally {
+      setTogglingRoleId(null);
+    }
+  };
+
+  const canDeleteRole = (role: Role) => role.name !== 'global-admin';
+
   const handleDeleteRole = async (role: Role) => {
-    if (window.confirm(`Are you sure you want to delete the role "${role.name}"? This action cannot be undone.`)) {
-      try {
-        await userManagementService.deleteRole(role.id);
-        addNotification({
-          type: 'success',
-          title: 'Role Deleted',
-          message: `Role "${role.name}" has been deleted successfully.`,
-          duration: 3000
-        });
-        onRolesChange(); // Refresh the roles list
-      } catch (error: any) {
-        addNotification({
-          type: 'error',
-          title: 'Delete Failed',
-          message: error.message || 'Failed to delete role. Please try again.',
-          duration: 5000
-        });
+    if (!canDeleteRole(role)) return;
+    const confirmed = window.confirm(
+      `Delete role "${role.name}"?\n\nThis cannot be undone. All users will lose this role assignment (and any project links for it). Role permissions for this role will be removed.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingRoleId(role.id);
+    try {
+      await userManagementService.deleteRole(role.id);
+      addNotification({
+        type: 'success',
+        title: 'Role deleted',
+        message: `Role "${role.name}" has been removed.`,
+        duration: 4000,
+      });
+      if (selectedRole?.id === role.id) {
+        setDetailsDialogOpen(false);
+        setEditDialogOpen(false);
+        setSelectedRole(null);
       }
+      await onRolesChange();
+    } catch (error: any) {
+      addNotification({
+        type: 'error',
+        title: 'Delete failed',
+        message: error?.message || 'Could not delete this role.',
+        duration: 6000,
+      });
+    } finally {
+      setDeletingRoleId(null);
     }
   };
 
@@ -172,7 +223,14 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
             Roles & Permissions
           </h2>
           <p className="text-muted-foreground">
-            Manage system roles and their associated permissions
+            Manage system roles and their associated permissions. Inactive roles remain visible here but are hidden from
+            user assignment until activated.
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Catalog:{' '}
+            <span className="font-medium text-foreground">{catalogActiveCount} active</span>
+            {' · '}
+            <span className="font-medium text-foreground">{catalogInactiveCount} inactive</span>
           </p>
         </div>
       </div>
@@ -201,6 +259,16 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
                 <SelectItem value="5-6">Level 5-6 (Project)</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={statusFilter} onValueChange={(value: any) => setStatusFilter(value)}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="active">Active only</SelectItem>
+                <SelectItem value="inactive">Inactive only</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
@@ -220,15 +288,25 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
                 <TableHead>Role Name</TableHead>
                 <TableHead>Level</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead className="w-[200px]">Active</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredRoles.map((role) => (
-                <TableRow key={role.id}>
+                <TableRow
+                  key={role.id}
+                  className={!role.isActive ? 'bg-muted/30' : undefined}
+                >
                   <TableCell>
-                    <div className="font-medium">{role.name}</div>
+                    <div className="font-medium flex items-center gap-2">
+                      {role.name}
+                      {!role.isActive && (
+                        <Badge variant="secondary" className="text-xs font-normal">
+                          Inactive
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={getRoleBadgeVariant(role.level)}>
@@ -241,9 +319,17 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={role.isActive ? 'default' : 'secondary'}>
-                      {role.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        checked={role.isActive}
+                        disabled={togglingRoleId === role.id || deletingRoleId === role.id}
+                        onCheckedChange={(checked) => handleToggleRoleActive(role, checked)}
+                        aria-label={role.isActive ? `Deactivate ${role.name}` : `Activate ${role.name}`}
+                      />
+                      <span className="text-sm text-muted-foreground whitespace-nowrap">
+                        {role.isActive ? 'On' : 'Off'}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -263,14 +349,19 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
                           <Edit className="h-4 w-4 mr-2" />
                           Edit Role
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {/* <DropdownMenuItem 
-                          onClick={() => handleDeleteRole(role)}
-                          className="text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete Role
-                        </DropdownMenuItem> */}
+                        {canDeleteRole(role) && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              disabled={deletingRoleId === role.id}
+                              onClick={() => handleDeleteRole(role)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              {deletingRoleId === role.id ? 'Deleting…' : 'Delete Role'}
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -323,8 +414,19 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
                     </p>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium">Status</Label>
-                    <div className="mt-1">
+                    <Label className="text-sm font-medium">Active</Label>
+                    <div className="mt-1 flex items-center gap-3">
+                      <Switch
+                        checked={selectedRole.isActive}
+                        disabled={
+                          togglingRoleId === selectedRole.id ||
+                          deletingRoleId === selectedRole.id
+                        }
+                        onCheckedChange={(checked) =>
+                          handleToggleRoleActive(selectedRole, checked)
+                        }
+                        aria-label={`Toggle active for ${selectedRole.name}`}
+                      />
                       <Badge variant={selectedRole.isActive ? 'default' : 'secondary'}>
                         {selectedRole.isActive ? 'Active' : 'Inactive'}
                       </Badge>
@@ -366,7 +468,21 @@ export function RoleManagement({ roles, onRolesChange }: RoleManagementProps) {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:space-x-0">
+            {selectedRole && canDeleteRole(selectedRole) ? (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={deletingRoleId === selectedRole.id}
+                className="w-full sm:w-auto"
+                onClick={() => handleDeleteRole(selectedRole)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {deletingRoleId === selectedRole.id ? 'Deleting…' : 'Delete role'}
+              </Button>
+            ) : (
+              <span />
+            )}
             <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
               Close
             </Button>

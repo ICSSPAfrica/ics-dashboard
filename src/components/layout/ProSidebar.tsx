@@ -199,26 +199,30 @@ export function ProSidebar() {
               >
                 Submit Feedback
               </MenuItem>
-              <MenuItem 
-                component={<Link to="/dashboard/feedback/forms" onClick={handleCloseSidebar} />}
-                className="text-sm"
-              >
-                Manage Forms
-              </MenuItem>
+              {permissionManager.hasPermission('feedback:manage') && (
+                <MenuItem
+                  component={<Link to="/dashboard/feedback/forms" onClick={handleCloseSidebar} />}
+                  className="text-sm"
+                >
+                  Manage Forms
+                </MenuItem>
+              )}
               {permissionManager.hasPermission('feedback:read') && (
-                <MenuItem 
+                <MenuItem
                   component={<Link to="/dashboard/feedback/submissions" onClick={handleCloseSidebar} />}
                   className="text-sm"
                 >
                   View Submissions
                 </MenuItem>
               )}
-              <MenuItem 
-                component={<Link to="/dashboard/feedback/analytics" onClick={handleCloseSidebar} />}
-                className="text-sm"
-              >
-                Analytics
-              </MenuItem>
+              {permissionManager.hasPermission('feedback:read') && (
+                <MenuItem
+                  component={<Link to="/dashboard/feedback/analytics" onClick={handleCloseSidebar} />}
+                  className="text-sm"
+                >
+                  Analytics
+                </MenuItem>
+              )}
             </SubMenu>
           </SubMenu>
 

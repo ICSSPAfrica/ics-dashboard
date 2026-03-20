@@ -31,8 +31,8 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { createEnhancedPermissionManager } from '@/lib/permissions';
 import { useForm } from '@/contexts/FormContext';
+import { createEnhancedPermissionManager } from '@/lib/permissions';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { toast } from '@/hooks/use-toast';
 import { Form } from './form-creation-wizard/types';
@@ -53,7 +53,11 @@ export function FormManagement() {
   const navigate = useNavigate();
   const { projectId } = useParams();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const permissionManager = createEnhancedPermissionManager({ user, isAuthenticated, isLoading: authLoading });
+  const permissionManager = createEnhancedPermissionManager({
+    user,
+    isAuthenticated,
+    isLoading: authLoading,
+  });
   const { getProjectForms, loadProjectForms, duplicateForm, deleteForm, projectForms } = useForm();
   
   // Get forms from context for the current project

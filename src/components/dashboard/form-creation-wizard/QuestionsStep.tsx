@@ -4,6 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AlertCircle, Plus, HelpCircle, Layers, GripVertical } from 'lucide-react';
 import {
   DndContext,
@@ -46,6 +56,7 @@ import { toast } from '@/hooks/use-toast';
 interface QuestionsStepProps {
   sections: FormSection[];
   availableActivities: ActivityKPIMapping[];
+  isEditing?: boolean;
   onAddQuestion: (sectionId: string, questionType: QuestionType, afterQuestionId?: string) => void;
   onUpdateQuestion: (sectionId: string, questionId: string, updates: Partial<FormQuestion>) => void;
   onRemoveQuestion: (sectionId: string, questionId: string) => void;
@@ -111,6 +122,7 @@ function SortableQuestionItem({ question, sectionId, children }: SortableQuestio
 export function QuestionsStep({
   sections,
   availableActivities,
+  isEditing = false,
   onAddQuestion,
   onUpdateQuestion,
   onRemoveQuestion,
@@ -121,6 +133,7 @@ export function QuestionsStep({
 }: QuestionsStepProps) {
   const [selectedQuestionType, setSelectedQuestionType] = useState<QuestionType>('SHORT_TEXT');
   const [selectedSectionId, setSelectedSectionId] = useState<string>(sections[0]?.id || '');
+  const [deleteTarget, setDeleteTarget] = useState<{ sectionId: string; questionId: string; title: string } | null>(null);
 
   // Drag and drop sensors
   const sensors = useSensors(
@@ -158,11 +171,26 @@ export function QuestionsStep({
   const totalQuestions = sections.reduce((total, section) => total + section.questions.length, 0);
   const currentSection = sections.find(s => s.id === selectedSectionId);
 
+  const handleDeleteQuestion = (sectionId: string, question: FormQuestion) => {
+    if (isEditing) {
+      setDeleteTarget({ sectionId, questionId: question.id, title: question.title || 'this question' });
+    } else {
+      onRemoveQuestion(sectionId, question.id);
+    }
+  };
+
+  const confirmDelete = () => {
+    if (deleteTarget) {
+      onRemoveQuestion(deleteTarget.sectionId, deleteTarget.questionId);
+      setDeleteTarget(null);
+    }
+  };
+
   const renderQuestionEditor = (sectionId: string, question: FormQuestion) => {
     const commonProps = {
       question,
       onUpdate: (updates: Partial<FormQuestion>) => onUpdateQuestion(sectionId, question.id, updates),
-      onDelete: () => onRemoveQuestion(sectionId, question.id),
+      onDelete: () => handleDeleteQuestion(sectionId, question),
       onDuplicate: () => onDuplicateQuestion(sectionId, question.id),
       availableActivities,
       onLinkToActivity: (activityMapping: ActivityKPIMapping) => 
@@ -441,6 +469,36 @@ export function QuestionsStep({
           </CardContent>
         </Card>
       )}
+
+      {/* Delete question confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete question?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  You are about to permanently delete{' '}
+                  <span className="font-semibold text-foreground">"{deleteTarget?.title}"</span>.
+                </p>
+                <p className="text-red-600 font-medium">
+                  All response data collected for this question will also be permanently deleted.
+                  This action cannot be undone.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete question &amp; data
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
