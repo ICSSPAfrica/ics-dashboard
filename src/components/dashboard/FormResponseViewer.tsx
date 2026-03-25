@@ -240,7 +240,34 @@ const groupResponsesBySubmission = (responses: FormResponse[], form?: Form): Map
 
   // Second pass: for forms with repeatable sections, group remaining responses by proximity (same respondent, close startedAt)
   if (hasRepeatableSections && withoutSubmissionId.length > 0) {
-    const sorted = [...withoutSubmissionId].sort((a, b) => {
+    const repeatableQIds = new Set(
+      getRepeatableSections(form!).flatMap(s => s.questions.map(q => q.id))
+    );
+
+    // "New-format" responses already embed all repeat instances as { "0": v, "1": v, … }.
+    // These are self-contained and must NOT be proximity-grouped with other responses.
+    const isNewFormatResponse = (r: FormResponse): boolean => {
+      for (const qId of repeatableQIds) {
+        const val = r.data[qId];
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+          const keys = Object.keys(val);
+          if (keys.some(k => /^\d+$/.test(k))) return true;
+        }
+      }
+      return false;
+    };
+
+    // Separate new-format responses (each is its own group) from old-format
+    const oldFormatResponses: FormResponse[] = [];
+    withoutSubmissionId.forEach(response => {
+      if (isNewFormatResponse(response)) {
+        groups.set(`single_${response.id}`, [response]);
+      } else {
+        oldFormatResponses.push(response);
+      }
+    });
+
+    const sorted = [...oldFormatResponses].sort((a, b) => {
       const emailA = a.respondentEmail ?? 'anonymous';
       const emailB = b.respondentEmail ?? 'anonymous';
       if (emailA !== emailB) return emailA.localeCompare(emailB);
@@ -450,20 +477,32 @@ const flattenGroupedResponses = (
     });
   });
   
-  // Then, add repeatable section data with instance suffixes
+  // Then, add repeatable section data with instance suffixes.
+  // A response can be either old-format (scalar values, one response per instance) or
+  // new-format (object values like {"0": v, "1": v} containing all instances).
   groupedResponses.forEach((response, index) => {
     const responseMetadata = parseRepeatableMetadata(response.source);
-    // Use instanceIndex from metadata if available, otherwise use array index
     const instanceIndex = responseMetadata.instanceIndex !== undefined ? responseMetadata.instanceIndex : index;
     
     repeatableSection.questions.forEach(question => {
-      const instanceKey = `${question.id}_instance_${instanceIndex}`;
-      if (response.data[question.id] !== undefined) {
-        flattenedData[instanceKey] = response.data[question.id];
+      const val = response.data[question.id];
+      if (val === undefined) return;
+
+      // New-format: value is an object with numeric keys — expand each into its own instance key
+      if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+        const numericKeys = Object.keys(val).filter(k => /^\d+$/.test(k));
+        if (numericKeys.length > 0) {
+          numericKeys.forEach(k => {
+            flattenedData[`${question.id}_instance_${k}`] = val[k];
+          });
+          return;
+        }
       }
+
+      // Old-format: scalar value — one instance per response
+      flattenedData[`${question.id}_instance_${instanceIndex}`] = val;
     });
     
-    // Collect attachments
     if (response.attachments) {
       allAttachments.push(...response.attachments);
     }
