@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Sidebar, Menu, MenuItem, SubMenu } from 'react-pro-sidebar';
 import { Link, useLocation } from 'react-router-dom';
-import { Target, Activity, Users, Settings, Folder, Circle, CheckCircle2, Flag, FileText, Plus, ClipboardList, X, DollarSign, MessageSquare, Database, BookOpen, Edit3, Archive, RotateCcw } from 'lucide-react';
+import { Target, Activity, Users, Settings, Folder, Circle, CheckCircle2, Flag, FileText, Plus, ClipboardList, X, DollarSign, MessageSquare, Database, BookOpen, Edit3, Archive, RotateCcw, Search } from 'lucide-react';
 import { useDashboard } from '@/contexts/DashboardContext';
 import { useProjects } from '@/contexts/ProjectsContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -104,13 +104,10 @@ export function ProSidebar() {
 
   // Get accessible projects for the current user
   const accessibleProjects = getAllProjectsForUser();
-  
-  // Debug: Log project statuses to verify they're being passed correctly
-  if (accessibleProjects.length > 0) {
-    console.log('📋 [ProSidebar] Accessible projects with statuses:', 
-      accessibleProjects.map(p => ({ id: p.id, name: p.name, status: p.status }))
-    );
-  }
+
+  const [projectSearch, setProjectSearch] = useState('');
+  const [activeOpen, setActiveOpen] = useState(true);
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
   try {
     return (
@@ -243,6 +240,20 @@ export function ProSidebar() {
                   </MenuItem>
                 )}
                 
+                {/* Search */}
+                <li className="px-3 pt-2 pb-1">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder="Search projects…"
+                      className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border border-gray-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400 placeholder:text-gray-400"
+                    />
+                  </div>
+                </li>
+
                 {/* Projects List */}
                 {isLoading ? (
                   <MenuItem className="text-sm text-gray-500">
@@ -253,7 +264,6 @@ export function ProSidebar() {
                     No projects available
                   </MenuItem>
                 ) : (() => {
-                  // Filter projects based on regional coordinator if needed
                   const filteredProjects = isRegionalCoordinator() 
                     ? accessibleProjects.filter((project: any) => {
                         const country = ((project && (project as any).country) ? (project as any).country : '').toLowerCase();
@@ -264,18 +274,17 @@ export function ProSidebar() {
                         return true;
                       })
                     : accessibleProjects;
+
+                  const q = projectSearch.trim().toLowerCase();
+                  const searched = q
+                    ? filteredProjects.filter((p: any) => p.name?.toLowerCase().includes(q))
+                    : filteredProjects;
+
+                  const activeProjects = searched.filter((project: any) => project.status !== 'ARCHIVED');
+                  const archivedProjects = searched.filter((project: any) => project.status === 'ARCHIVED');
                   
-                  // Separate projects into active and archived
-                  const activeProjects = filteredProjects.filter((project: any) => project.status !== 'ARCHIVED');
-                  const archivedProjects = filteredProjects.filter((project: any) => project.status === 'ARCHIVED');
-                  
-                  // Helper function to render project menu
                   const renderProjectMenu = (project: any) => {
-                    // Safety check for project object
-                    if (!project || !project.id || !project.name) {
-                      console.warn('Invalid project object:', project);
-                      return null;
-                    }
+                    if (!project || !project.id || !project.name) return null;
                     
                     return (
                       <SubMenu 
@@ -289,7 +298,6 @@ export function ProSidebar() {
                         >
                           Overview
                         </MenuItem>
-                        {/* KPI Analytics - Check for KPI permissions */}
                         {permissionManager.canAccessProjectComponent(project.id, 'kpis', 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/kpi`} onClick={handleCloseSidebar} />}
@@ -298,8 +306,6 @@ export function ProSidebar() {
                             KPI Analytics
                           </MenuItem>
                         )}
-                        
-                        {/* Outcomes - Check for project read permissions */}
                         {permissionManager.canAccessProject(project.id, 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/outcomes`} onClick={handleCloseSidebar} />}
@@ -308,8 +314,6 @@ export function ProSidebar() {
                             Outcomes
                           </MenuItem>
                         )}
-                        
-                        {/* Outputs - Check for project read permissions */}
                         {permissionManager.canAccessProject(project.id, 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/outputs`} onClick={handleCloseSidebar} />}
@@ -318,8 +322,6 @@ export function ProSidebar() {
                             Outputs
                           </MenuItem>
                         )}
-                        
-                        {/* Activities - Check for project read permissions */}
                         {permissionManager.canAccessProject(project.id, 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/activities`} onClick={handleCloseSidebar} />}
@@ -328,8 +330,6 @@ export function ProSidebar() {
                             Activities
                           </MenuItem>
                         )}
-                        
-                        {/* Subactivities - Check for project read permissions */}
                         {permissionManager.canAccessProject(project.id, 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/subactivities`} onClick={handleCloseSidebar} />}
@@ -338,8 +338,6 @@ export function ProSidebar() {
                             Subactivities
                           </MenuItem>
                         )}
-                        
-                        {/* Forms - Check for forms permissions */}
                         {permissionManager.canViewForms(project.id) && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/forms`} onClick={handleCloseSidebar} />}
@@ -348,8 +346,6 @@ export function ProSidebar() {
                             Forms
                           </MenuItem>
                         )}
-                        
-                        {/* Financial tracking - Check for finance permissions */}
                         {permissionManager.canAccessProjectComponent(project.id, 'finance', 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/financial`} onClick={handleCloseSidebar} />}
@@ -358,8 +354,6 @@ export function ProSidebar() {
                             Financial
                           </MenuItem>
                         )}
-                        
-                        {/* Reports - Check for reports permissions */}
                         {permissionManager.canAccessProjectComponent(project.id, 'reports', 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/reports`} onClick={handleCloseSidebar} />}
@@ -368,8 +362,6 @@ export function ProSidebar() {
                             Reports
                           </MenuItem>
                         )}
-                        
-                        {/* Kobo Data - Check for kobo permissions */}
                         {permissionManager.canAccessProjectComponent(project.id, 'kobo', 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/kobo-data`} onClick={handleCloseSidebar} />}
@@ -378,8 +370,6 @@ export function ProSidebar() {
                             Kobo Data
                           </MenuItem>
                         )}
-                        
-                        {/* Maps - Check for project read permissions */}
                         {permissionManager.canAccessProject(project.id, 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/maps`} onClick={handleCloseSidebar} />}
@@ -388,8 +378,6 @@ export function ProSidebar() {
                             Maps
                           </MenuItem>
                         )}
-                        
-                        {/* Media - Check for project read permissions */}
                         {permissionManager.canAccessProject(project.id, 'read') && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/media`} onClick={handleCloseSidebar} />}
@@ -398,8 +386,6 @@ export function ProSidebar() {
                             Media
                           </MenuItem>
                         )}
-                        
-                        {/* Edit Project (admin only) */}
                         {isAdmin() && (
                           <MenuItem 
                             component={<Link to={`/dashboard/projects/${project.id}/edit`} onClick={handleCloseSidebar} />}
@@ -408,17 +394,10 @@ export function ProSidebar() {
                             Edit Project
                           </MenuItem>
                         )}
-                        
-                        {/* Archive/Restore Project (admin only) */}
                         {isAdmin() && (
                           <MenuItem 
                             onClick={(e) => {
                               e.preventDefault();
-                              console.log('🖱️ [ProSidebar] Archive/Restore clicked:', {
-                                projectId: project.id,
-                                projectName: project.name,
-                                currentStatus: project.status
-                              });
                               if (project.status === 'ARCHIVED') {
                                 handleRestoreProject(project.id, project.name);
                               } else {
@@ -427,57 +406,57 @@ export function ProSidebar() {
                             }}
                             className="text-sm"
                           >
-                            {(() => {
-                              const isArchived = project.status === 'ARCHIVED';
-                              console.log(`🔍 [ProSidebar] Rendering menu item for project ${project.id}:`, {
-                                status: project.status,
-                                isArchived,
-                                willShow: isArchived ? 'Restore' : 'Archive'
-                              });
-                              return isArchived ? (
-                                <>
-                                  <RotateCcw className="w-4 h-4 mr-2 inline" />
-                                  Restore Project
-                                </>
-                              ) : (
-                                <>
-                                  <Archive className="w-4 h-4 mr-2 inline" />
-                                  Archive Project
-                                </>
-                              );
-                            })()}
+                            {project.status === 'ARCHIVED' ? (
+                              <>
+                                <RotateCcw className="w-4 h-4 mr-2 inline" />
+                                Restore Project
+                              </>
+                            ) : (
+                              <>
+                                <Archive className="w-4 h-4 mr-2 inline" />
+                                Archive Project
+                              </>
+                            )}
                           </MenuItem>
                         )}
                       </SubMenu>
                     );
                   };
+
+                  if (q && activeProjects.length === 0 && archivedProjects.length === 0) {
+                    return (
+                      <MenuItem className="text-xs text-gray-400 italic">
+                        No projects match "{projectSearch.trim()}"
+                      </MenuItem>
+                    );
+                  }
                   
                   return (
                     <>
-                      {/* Active Projects Section */}
+                      {/* Active Projects — collapsible */}
                       {activeProjects.length > 0 && (
-                        <>
-                          <MenuItem 
-                            className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-2 mt-2 mb-1 pointer-events-none"
-                            style={{ cursor: 'default' }}
-                          >
-                            Active Projects
-                          </MenuItem>
+                        <SubMenu
+                          label={`Active Projects (${activeProjects.length})`}
+                          icon={<Folder className="h-4 w-4" />}
+                          className="text-sm"
+                          defaultOpen={activeOpen}
+                          onOpenChange={(open) => setActiveOpen(open)}
+                        >
                           {activeProjects.map(renderProjectMenu)}
-                        </>
+                        </SubMenu>
                       )}
                       
-                      {/* Archived Projects Section */}
+                      {/* Archived Projects — collapsible, collapsed by default */}
                       {archivedProjects.length > 0 && (
-                        <>
-                          <MenuItem 
-                            className="text-xs font-semibold text-gray-500 uppercase tracking-wider px-4 py-2 mt-4 mb-1 pointer-events-none"
-                            style={{ cursor: 'default' }}
-                          >
-                            Archived Projects
-                          </MenuItem>
+                        <SubMenu
+                          label={`Archived (${archivedProjects.length})`}
+                          icon={<Archive className="h-4 w-4" />}
+                          className="text-sm"
+                          defaultOpen={archivedOpen}
+                          onOpenChange={(open) => setArchivedOpen(open)}
+                        >
                           {archivedProjects.map(renderProjectMenu)}
-                        </>
+                        </SubMenu>
                       )}
                     </>
                   );

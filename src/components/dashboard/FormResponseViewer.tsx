@@ -64,8 +64,13 @@ const transformQuestionData = (question: any) => {
   };
 };
 
-// Helper function to get all questions (main + conditional) in the correct order
-// For repeatable sections, includes instance columns
+// Helper function to get all questions (main + conditional) in the correct order.
+// For repeatable sections, includes instance columns.
+// Conditional questions that share the same title under the same parent are
+// deduplicated into a single column — their alternate IDs are tracked in
+// `alternateIds` so the value lookup can try all of them.
+// `triggerValues` records which parent option values activate this conditional
+// so we can suppress stale data when _parentValue doesn't match.
 const getAllQuestionsInOrder = (
   form: Form,
   maxInstances?: number
@@ -77,7 +82,9 @@ const getAllQuestionsInOrder = (
   isRepeatable?: boolean;
   sectionId?: string;
   instanceIndex?: number;
-  instanceKey?: string; // For repeatable: questionId_instance_N
+  instanceKey?: string;
+  alternateIds?: string[];
+  triggerValues?: string[];
 }> => {
   const allQuestions: Array<{
     question: FormQuestion;
@@ -88,21 +95,78 @@ const getAllQuestionsInOrder = (
     sectionId?: string;
     instanceIndex?: number;
     instanceKey?: string;
+    alternateIds?: string[];
+    triggerValues?: string[];
   }> = [];
 
-  // Get repeatable sections
   const repeatableSections = getRepeatableSections(form);
   const repeatableSectionIds = new Set(repeatableSections.map(s => s.id));
+
+  // Build a set of question IDs that appear as conditionals inside some parent's options,
+  // so we can skip their standalone section entries (the conditional version correctly
+  // extracts values from the parent's nested response object).
+  const conditionalQuestionIds = new Set<string>();
+  form.sections.forEach(s => s.questions.forEach(q => {
+    const opts = (q as any).options;
+    if (!opts || !Array.isArray(opts)) return;
+    opts.forEach((opt: any) => {
+      opt.conditionalQuestions?.forEach((cq: any) => conditionalQuestionIds.add(cq.id));
+    });
+  }));
+
+  // Collect conditional questions from every option of a parent, deduped by title.
+  // Also tracks which option values trigger each conditional.
+  // For MULTIPLE_CHOICE parents (multi-select), each option's conditional is kept
+  // as a separate column because the user can select many options simultaneously
+  // and each conditional captures an independent value.
+  const collectConditionalQuestions = (question: FormQuestion) => {
+    const options = (question as any).options;
+    if (!options || !Array.isArray(options)) return [];
+
+    const isMultiSelect = question.type === 'MULTIPLE_CHOICE';
+
+    if (isMultiSelect) {
+      const results: { condQuestion: any; allIds: string[]; parentOption: any; triggerValues: string[] }[] = [];
+      options.forEach((option: any) => {
+        if (!option.conditionalQuestions || !Array.isArray(option.conditionalQuestions)) return;
+        option.conditionalQuestions.forEach((cq: any) => {
+          results.push({ condQuestion: cq, allIds: [cq.id], parentOption: option, triggerValues: [option.value] });
+        });
+      });
+      return results;
+    }
+
+    const seen = new Map<string, { condQuestion: any; allIds: string[]; parentOption: any; triggerValues: string[] }>();
+
+    options.forEach((option: any) => {
+      if (!option.conditionalQuestions || !Array.isArray(option.conditionalQuestions)) return;
+      option.conditionalQuestions.forEach((cq: any) => {
+        const key = (cq.title || '').trim().toLowerCase();
+        const existing = seen.get(key);
+        if (existing) {
+          if (!existing.allIds.includes(cq.id)) existing.allIds.push(cq.id);
+          if (!existing.triggerValues.includes(option.value)) existing.triggerValues.push(option.value);
+        } else {
+          seen.set(key, { condQuestion: cq, allIds: [cq.id], parentOption: option, triggerValues: [option.value] });
+        }
+      });
+    });
+
+    return Array.from(seen.values());
+  };
 
   form.sections.forEach(section => {
     const isRepeatable = repeatableSectionIds.has(section.id);
     
     section.questions.forEach(question => {
+      // Skip standalone questions whose ID also appears as a conditional inside
+      // another question's options — the conditional entry handles extraction.
+      if (conditionalQuestionIds.has(question.id)) return;
+
       if (isRepeatable && maxInstances) {
-        // For repeatable sections, create columns for each instance
         for (let instanceIndex = 0; instanceIndex < maxInstances; instanceIndex++) {
-      allQuestions.push({
-        question,
+          allQuestions.push({
+            question,
             isConditional: false,
             isRepeatable: true,
             sectionId: section.id,
@@ -110,57 +174,72 @@ const getAllQuestionsInOrder = (
             instanceKey: `${question.id}_instance_${instanceIndex}`
           });
 
-          // Add conditional questions for each instance
-          if ((question as any).options && Array.isArray((question as any).options)) {
-            (question as any).options.forEach((option: any) => {
-              if (option.conditionalQuestions && Array.isArray(option.conditionalQuestions)) {
-                option.conditionalQuestions.forEach((condQuestion: any) => {
-                  allQuestions.push({
-                    question: condQuestion as FormQuestion,
-                    isConditional: true,
-                    parentQuestion: question,
-                    parentOption: option,
-                    isRepeatable: true,
-                    sectionId: section.id,
-                    instanceIndex,
-                    instanceKey: `${condQuestion.id}_instance_${instanceIndex}`
-                  });
-                });
-              }
+          for (const { condQuestion, allIds, parentOption, triggerValues } of collectConditionalQuestions(question)) {
+            allQuestions.push({
+              question: condQuestion as FormQuestion,
+              isConditional: true,
+              parentQuestion: question,
+              parentOption,
+              isRepeatable: true,
+              sectionId: section.id,
+              instanceIndex,
+              instanceKey: `${condQuestion.id}_instance_${instanceIndex}`,
+              alternateIds: allIds.length > 1 ? allIds : undefined,
+              triggerValues,
             });
           }
         }
       } else {
-        // Non-repeatable section - add question once
         allQuestions.push({
           question,
           isConditional: false,
           isRepeatable: false,
           sectionId: section.id
-      });
-
-      // Add conditional questions
-      if ((question as any).options && Array.isArray((question as any).options)) {
-        (question as any).options.forEach((option: any) => {
-          if (option.conditionalQuestions && Array.isArray(option.conditionalQuestions)) {
-            option.conditionalQuestions.forEach((condQuestion: any) => {
-              allQuestions.push({
-                question: condQuestion as FormQuestion,
-                isConditional: true,
-                parentQuestion: question,
-                  parentOption: option,
-                  isRepeatable: false,
-                  sectionId: section.id
-              });
-            });
-          }
         });
+
+        for (const { condQuestion, allIds, parentOption, triggerValues } of collectConditionalQuestions(question)) {
+          allQuestions.push({
+            question: condQuestion as FormQuestion,
+            isConditional: true,
+            parentQuestion: question,
+            parentOption,
+            isRepeatable: false,
+            sectionId: section.id,
+            alternateIds: allIds.length > 1 ? allIds : undefined,
+            triggerValues,
+          });
         }
       }
     });
   });
 
   return allQuestions;
+};
+
+// Resolve the parent display value from a response object that may or may not
+// have `_parentValue`.  When the field is missing (older submission format),
+// infer the selected option by checking which option's conditional question IDs
+// appear as keys in the object.
+const resolveParentValue = (responseValue: any, question?: FormQuestion): any => {
+  if (responseValue === null || responseValue === undefined) return responseValue;
+  if (typeof responseValue !== 'object' || Array.isArray(responseValue)) return responseValue;
+
+  // Explicit _parentValue — use it directly
+  if (responseValue._parentValue !== undefined) return responseValue._parentValue;
+
+  // No _parentValue — try to infer from option conditional IDs
+  const options = (question as any)?.options as any[] | undefined;
+  if (!options) return responseValue; // can't infer, return as-is
+
+  const objKeys = new Set(Object.keys(responseValue));
+  for (const opt of options) {
+    const condIds: string[] = (opt.conditionalQuestions || []).map((cq: any) => cq.id);
+    if (condIds.length > 0 && condIds.some(id => objKeys.has(id))) {
+      return opt.value;
+    }
+  }
+
+  return responseValue; // fallback
 };
 
 // Helper function to transform form data structure
@@ -586,7 +665,25 @@ interface ResponseCellProps {
   responseData?: Record<string, any>; // Full response data for conditional questions
 }
 
-function ResponseCell({ question, value, attachments, isEditable = false, onValueChange, responseData }: ResponseCellProps) {
+function ResponseCell({ question, value: rawValue, attachments, isEditable = false, onValueChange, responseData }: ResponseCellProps) {
+  // Normalize unexpected object values to prevent React "Objects are not valid
+  // as a React child" crashes — e.g. empty {} from skipped repeatable fields,
+  // or un-expanded repeatable instance objects like {"0": "val", "1": "val"}.
+  let value = rawValue;
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 0) {
+      value = null;
+    } else if ('_parentValue' in value) {
+      value = value._parentValue;
+    } else if (keys.every(k => /^\d+$/.test(k))) {
+      // Un-expanded repeatable instance object — show instance 0
+      value = value['0'] ?? value[keys[0]];
+    } else {
+      value = JSON.stringify(value);
+    }
+  }
+
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -615,11 +712,14 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
           />
         );
       }
-      return (
-        <div className="text-xs max-w-[200px] truncate leading-tight" title={value}>
-          {value || '-'}
-        </div>
-      );
+      {
+        const textDisplay = value != null && value !== '' ? (typeof value === 'object' ? JSON.stringify(value) : String(value)) : '-';
+        return (
+          <div className="text-xs max-w-[200px] truncate leading-tight" title={textDisplay}>
+            {textDisplay}
+          </div>
+        );
+      }
 
     case 'EMAIL':
       if (isEditable) {
@@ -692,9 +792,12 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
           />
         );
       }
+      const numDisplay = value !== undefined && value !== null
+        ? (typeof value === 'object' ? JSON.stringify(value) : String(value))
+        : '-';
       return (
         <div className="text-xs font-mono leading-tight">
-          {value !== undefined && value !== null ? value : '-'}
+          {numDisplay}
         </div>
       );
     }
@@ -720,10 +823,14 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
       const selectedOption = question.options?.find(opt => opt.value.toString() === value?.toString());
       const selectedLabel = selectedOption?.label || value || '-';
       
-      // Check if this option has conditional questions and if there are responses for them
+      // Check if this option has conditional questions and if there are responses for them.
+      // Values may live at the top level of responseData OR nested inside the parent question's
+      // response object (which has the shape { _parentValue, <condId>: value, ... }).
+      const parentObj = responseData?.[question.id];
+      const parentNested = typeof parentObj === 'object' && parentObj !== null && !Array.isArray(parentObj) ? parentObj : null;
       const conditionalResponses = selectedOption?.hasConditionalQuestions && selectedOption?.conditionalQuestions && responseData ? 
         selectedOption.conditionalQuestions.map(conditionalQuestion => {
-          const conditionalValue = responseData[conditionalQuestion.id];
+          const conditionalValue = responseData[conditionalQuestion.id] ?? parentNested?.[conditionalQuestion.id];
           return {
             question: conditionalQuestion,
             value: conditionalValue
@@ -752,7 +859,8 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
           .map(v => question.options?.find(opt => opt.value === v)?.label || v)
           .join(', ');
         
-        // Check for conditional questions
+        const mcParentObj = responseData?.[question.id];
+        const mcParentNested = typeof mcParentObj === 'object' && mcParentObj !== null && !Array.isArray(mcParentObj) ? mcParentObj : null;
         const conditionalResponses = question.options
           .filter(option => 
             option.hasConditionalQuestions && 
@@ -761,7 +869,7 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
           )
           .flatMap(option => 
             option.conditionalQuestions!.map(conditionalQuestion => {
-              const conditionalValue = responseData?.[conditionalQuestion.id];
+              const conditionalValue = responseData?.[conditionalQuestion.id] ?? mcParentNested?.[conditionalQuestion.id];
               return { question: conditionalQuestion, value: conditionalValue };
             }).filter(item => item.value !== undefined)
           );
@@ -782,20 +890,20 @@ function ResponseCell({ question, value, attachments, isEditable = false, onValu
           </div>
         );
       }
-      return <div className="text-xs leading-tight">{Array.isArray(value) ? value.join(', ') : value || '-'}</div>;
+      return <div className="text-xs leading-tight">{Array.isArray(value) ? value.join(', ') : (value != null && typeof value !== 'object' ? String(value) : '-')}</div>;
 
     case 'DATE':
     case 'DATETIME':
       return (
         <div className="text-xs leading-tight">
-          {value ? new Date(value).toLocaleDateString() : '-'}
+          {value && typeof value !== 'object' ? new Date(value).toLocaleDateString() : '-'}
         </div>
       );
 
     case 'SLIDER':
       return (
         <div className="text-xs font-mono leading-tight">
-          {value !== undefined && value !== null ? value : '-'}
+          {value !== undefined && value !== null ? (typeof value === 'object' ? JSON.stringify(value) : String(value)) : '-'}
         </div>
       );
 
@@ -1659,13 +1767,16 @@ export function FormResponseViewer() {
       'Submitted At',
       'Completion Time (minutes)'
     ];
-    allQuestions.forEach(({question, isConditional, parentQuestion, parentOption, isRepeatable, instanceIndex, instanceKey}) => {
+    allQuestions.forEach(({question, isConditional, parentQuestion, parentOption, isRepeatable, instanceIndex, instanceKey, alternateIds}) => {
       let headerTitle = question.title;
       if (isRepeatable && instanceIndex !== undefined) {
         headerTitle = `${question.title} (Instance ${instanceIndex + 1})`;
       }
       if (isConditional) {
-        headerTitle = `${question.title} (Conditional: ${parentQuestion?.title || 'Unknown'} → ${parentOption?.label || parentOption})${isRepeatable && instanceIndex !== undefined ? ` - Instance ${instanceIndex + 1}` : ''}`;
+        const parentLabel = alternateIds && alternateIds.length > 1
+          ? parentQuestion?.title || 'Unknown'
+          : `${parentQuestion?.title || 'Unknown'} → ${parentOption?.label || parentOption}`;
+        headerTitle = `${question.title} (Conditional: ${parentLabel})${isRepeatable && instanceIndex !== undefined ? ` - Instance ${instanceIndex + 1}` : ''}`;
       }
       if (question.type === 'LOCATION') {
         headers.push(`${headerTitle} - Latitude`);
@@ -1692,18 +1803,33 @@ export function FormResponseViewer() {
           completionTime
         ];
         // Add question values in same order as viewer (including repeatable instance columns)
-        allQuestions.forEach(({question, isConditional, parentQuestion, instanceKey}) => {
+        allQuestions.forEach(({question, isConditional, parentQuestion, instanceKey, alternateIds, triggerValues}) => {
           let value;
             let attachments: MediaAttachment[] = [];
             
-            // Determine the key to use for lookup
             const dataKey = instanceKey || question.id;
             const parentQuestionId = parentQuestion?.id;
+
+            const idsToTry = alternateIds && alternateIds.length > 1
+              ? alternateIds
+              : [question.id];
+
+            // Check if the parent answer matches one of the trigger option values.
+            // Uses resolveParentValue to handle objects missing `_parentValue`.
+            const parentValueMatchesTrigger = (parentObj: any) => {
+              if (!triggerValues || triggerValues.length === 0) return true;
+              if (typeof parentObj !== 'object' || parentObj === null || Array.isArray(parentObj)) return true;
+              const pv = resolveParentValue(parentObj, parentQuestion);
+              if (Array.isArray(pv)) {
+                const pvLower = pv.map((v: any) => String(v).trim().toLowerCase());
+                return triggerValues.some(tv => pvLower.includes(String(tv).trim().toLowerCase()));
+              }
+              if (typeof pv === 'object') return true; // couldn't resolve, don't suppress
+              return triggerValues.some(tv => String(tv).trim().toLowerCase() === String(pv).trim().toLowerCase());
+            };
           
           if (isConditional && parentQuestionId) {
-              // For conditional questions in repeatable sections
               if (instanceKey) {
-                // Repeatable conditional - parent may be data[parentId_instance_N] or data[parentId]["N"]
                 const instanceIndexStr = instanceKey.split('_instance_')[1];
                 let parentResponseValue = flattenedResponse.data[`${parentQuestionId}_instance_${instanceIndexStr}`];
                 if (parentResponseValue === undefined && instanceIndexStr != null) {
@@ -1712,16 +1838,21 @@ export function FormResponseViewer() {
                     parentResponseValue = byParent[instanceIndexStr] ?? byParent[Number(instanceIndexStr)];
                   }
                 }
-                if (typeof parentResponseValue === 'object' && parentResponseValue !== null) {
-                  value = parentResponseValue[question.id];
+                if (typeof parentResponseValue === 'object' && parentResponseValue !== null && parentValueMatchesTrigger(parentResponseValue)) {
+                  for (const tryId of idsToTry) {
+                    if (parentResponseValue[tryId] !== undefined) { value = parentResponseValue[tryId]; break; }
+                  }
+                  if (value === undefined) value = null;
                 } else {
                   value = null;
                 }
               } else {
-                // Non-repeatable conditional question
                 const parentResponseValue = flattenedResponse.data[parentQuestionId];
-                if (typeof parentResponseValue === 'object' && parentResponseValue !== null) {
-                  value = parentResponseValue[question.id];
+                if (typeof parentResponseValue === 'object' && parentResponseValue !== null && parentValueMatchesTrigger(parentResponseValue)) {
+                  for (const tryId of idsToTry) {
+                    if (parentResponseValue[tryId] !== undefined) { value = parentResponseValue[tryId]; break; }
+                  }
+                  if (value === undefined) value = null;
                 } else {
                   value = null;
                 }
@@ -1749,8 +1880,8 @@ export function FormResponseViewer() {
                 }
               }
               // Handle nested structure for parent questions that have conditional children
-              if (typeof value === 'object' && value !== null && !Array.isArray(value) && value._parentValue !== undefined) {
-                value = value._parentValue;
+              if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                value = resolveParentValue(value, question);
               }
             }
           
@@ -2090,11 +2221,10 @@ export function FormResponseViewer() {
                         </TableHead>
                         
                         {/* Question columns - including conditional questions and instance columns for repeatable sections */}
-                        {allQuestionsInOrder.map(({ question, isConditional, parentQuestion, parentOption, isRepeatable, instanceIndex, instanceKey }) => {
+                        {allQuestionsInOrder.map(({ question, isConditional, parentQuestion, parentOption, isRepeatable, instanceIndex, instanceKey, alternateIds }) => {
                           const columnKey = instanceKey || question.id;
                           
                           if (isConditional) {
-                            // Conditional question column
                             return (
                               <TableHead key={columnKey} className="min-w-[150px] border border-gray-300 px-2 py-2 text-xs font-medium text-gray-900 bg-blue-50">
                                 <div>
@@ -2109,7 +2239,7 @@ export function FormResponseViewer() {
                                     {question.type.replace('_', ' ')} (conditional)
                                   </div>
                                   <div className="text-blue-500 text-xs">
-                                    from: {parentQuestion?.title} → {parentOption?.label}
+                                    from: {parentQuestion?.title}{alternateIds && alternateIds.length > 1 ? '' : ` → ${parentOption?.label}`}
                                   </div>
                                 </div>
                               </TableHead>
@@ -2167,16 +2297,28 @@ export function FormResponseViewer() {
                           </TableCell>
                             
                             {/* Question response cells - matching the header structure exactly */}
-                            {allQuestionsInOrder.map(({ question, isConditional, parentQuestion, instanceKey }) => {
+                            {allQuestionsInOrder.map(({ question, isConditional, parentQuestion, instanceKey, alternateIds, triggerValues }) => {
                               const cellKey = instanceKey || question.id;
+                              const idsToTry = alternateIds && alternateIds.length > 1
+                                ? alternateIds
+                                : [question.id];
+
+                              const parentValueMatchesTrigger = (parentObj: any) => {
+                                if (!triggerValues || triggerValues.length === 0) return true;
+                                if (typeof parentObj !== 'object' || parentObj === null || Array.isArray(parentObj)) return true;
+                                const pv = resolveParentValue(parentObj, parentQuestion);
+                                if (Array.isArray(pv)) {
+                                  const pvLower = pv.map((v: any) => String(v).trim().toLowerCase());
+                                  return triggerValues.some(tv => pvLower.includes(String(tv).trim().toLowerCase()));
+                                }
+                                if (typeof pv === 'object') return true;
+                                return triggerValues.some(tv => String(tv).trim().toLowerCase() === String(pv).trim().toLowerCase());
+                              };
                               
                               if (isConditional) {
-                                // For conditional questions, extract response from parent question's nested data
-                                // Handle both repeatable and non-repeatable conditional questions
                                 let conditionalResponse = null;
                                 
                                 if (instanceKey) {
-                                  // Repeatable conditional - parent may be row.data[parentId_instance_N] or row.data[parentId]["N"]
                                   const instanceIndexStr = instanceKey.split('_instance_')[1];
                                   let parentResponseValue = row.data[`${parentQuestion?.id}_instance_${instanceIndexStr}`];
                                   if (parentResponseValue === undefined && instanceIndexStr != null) {
@@ -2185,14 +2327,17 @@ export function FormResponseViewer() {
                                       parentResponseValue = byParent[instanceIndexStr] ?? byParent[Number(instanceIndexStr)];
                                     }
                                   }
-                                  if (typeof parentResponseValue === 'object' && parentResponseValue !== null) {
-                                    conditionalResponse = parentResponseValue[question.id];
+                                  if (typeof parentResponseValue === 'object' && parentResponseValue !== null && parentValueMatchesTrigger(parentResponseValue)) {
+                                    for (const tryId of idsToTry) {
+                                      if (parentResponseValue[tryId] !== undefined) { conditionalResponse = parentResponseValue[tryId]; break; }
+                                    }
                                   }
                                 } else {
-                                  // Non-repeatable conditional question
                                   const parentResponseValue = row.data[parentQuestion?.id || ''];
-                                  if (typeof parentResponseValue === 'object' && parentResponseValue !== null) {
-                                    conditionalResponse = parentResponseValue[question.id];
+                                  if (typeof parentResponseValue === 'object' && parentResponseValue !== null && parentValueMatchesTrigger(parentResponseValue)) {
+                                    for (const tryId of idsToTry) {
+                                      if (parentResponseValue[tryId] !== undefined) { conditionalResponse = parentResponseValue[tryId]; break; }
+                                    }
                                   }
                                 }
                                 
@@ -2248,10 +2393,7 @@ export function FormResponseViewer() {
                                 }
                                 
                                 // Extract the actual parent response value (handle nested structure)
-                                let actualResponseValue = responseValue;
-                                if (typeof responseValue === 'object' && responseValue !== null && !Array.isArray(responseValue) && responseValue._parentValue !== undefined) {
-                                  actualResponseValue = responseValue._parentValue;
-                                }
+                                const actualResponseValue = resolveParentValue(responseValue, question);
                                 
                                 return (
                                   <TableCell key={cellKey} className="min-w-[150px] border border-gray-300 px-2 py-2">

@@ -28,7 +28,9 @@ import {
   Upload,
   Archive,
   XCircle,
-  RotateCcw
+  RotateCcw,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useForm } from '@/contexts/FormContext';
@@ -74,6 +76,12 @@ export function FormManagement() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [formToDelete, setFormToDelete] = useState<Form | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    PUBLISHED: true,
+    DRAFT: true,
+    CLOSED: false,
+    ARCHIVED: false,
+  });
 
   // Load forms when component mounts or projectId changes
   useEffect(() => {
@@ -618,15 +626,10 @@ export function FormManagement() {
         </CardContent>
       </Card>
 
-      {/* Forms Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span>Forms ({filteredForms.length})</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {filteredForms.length === 0 ? (
+      {/* Forms grouped by status */}
+      {filteredForms.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6">
             <div className="text-center py-8">
               <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600 mb-2">
@@ -645,279 +648,210 @@ export function FormManagement() {
                 </Button>
               )}
             </div>
-          ) : (
-            <>
-              {/* Desktop Table View */}
-              <div className="hidden lg:block overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Form</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Responses</TableHead>
-                      <TableHead>Last Response</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredForms.map((form) => (
-                      <TableRow 
-                        key={form.id} 
-                        className="cursor-pointer hover:bg-gray-50 transition-colors"
+          </CardContent>
+        </Card>
+      ) : (
+        (() => {
+          const statusOrder: Form['status'][] = ['PUBLISHED', 'DRAFT', 'CLOSED', 'ARCHIVED'];
+          const statusLabels: Record<string, string> = {
+            PUBLISHED: 'Published',
+            DRAFT: 'Drafts',
+            CLOSED: 'Closed',
+            ARCHIVED: 'Archived',
+          };
+          const statusIcons: Record<string, React.ReactNode> = {
+            PUBLISHED: <CheckCircle className="w-4 h-4 text-green-600" />,
+            DRAFT: <Edit className="w-4 h-4 text-orange-500" />,
+            CLOSED: <XCircle className="w-4 h-4 text-red-500" />,
+            ARCHIVED: <Archive className="w-4 h-4 text-gray-400" />,
+          };
+
+          const grouped = statusOrder
+            .map(status => ({
+              status,
+              label: statusLabels[status],
+              icon: statusIcons[status],
+              forms: filteredForms.filter(f => f.status === status),
+            }))
+            .filter(g => g.forms.length > 0);
+
+          const toggleGroup = (status: string) =>
+            setOpenGroups(prev => ({ ...prev, [status]: !prev[status] }));
+
+          const renderFormActions = (form: Form) => (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="h-8 w-8 p-0" onClick={(e) => e.stopPropagation()}>
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleViewForm(form.id); }}>
+                  <Eye className="mr-2 h-4 w-4" /> Preview Form
+                </DropdownMenuItem>
+                {canEditForms && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditForm(form.id); }}>
+                    <Edit className="mr-2 h-4 w-4" /> Edit Form
+                  </DropdownMenuItem>
+                )}
+                {canViewResponses && form.responseCount > 0 && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleViewResponses(form.id); }}>
+                    <BarChart3 className="mr-2 h-4 w-4" /> View Responses ({form.responseCount})
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                {form.status === 'PUBLISHED' && canViewForms && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleShareForm(form); }}>
+                    <Share2 className="mr-2 h-4 w-4" /> Share Link
+                  </DropdownMenuItem>
+                )}
+                {canCreateForms && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicateForm(form); }}>
+                    <Copy className="mr-2 h-4 w-4" /> Duplicate
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                {(form.status === 'PUBLISHED' || form.status === 'DRAFT') && canEditForms && (
+                  <>
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleArchiveForm(form); }}>
+                      <Archive className="mr-2 h-4 w-4" /> Archive
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDisableForm(form); }}>
+                      <XCircle className="mr-2 h-4 w-4" /> Disable
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {(form.status === 'ARCHIVED' || form.status === 'CLOSED') && canEditForms && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRestoreForm(form); }}>
+                    <RotateCcw className="mr-2 h-4 w-4" /> Restore
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                {canDeleteForms && (
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDeleteForm(form); }} className="text-red-600">
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          );
+
+          return grouped.map(({ status, label, icon, forms: groupForms }) => (
+            <Card key={status}>
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50/60 transition-colors"
+                onClick={() => toggleGroup(status)}
+              >
+                <div className="flex items-center gap-2">
+                  {openGroups[status]
+                    ? <ChevronDown className="w-4 h-4 text-gray-500" />
+                    : <ChevronRight className="w-4 h-4 text-gray-500" />
+                  }
+                  {icon}
+                  <span className="font-semibold text-sm">{label}</span>
+                  <Badge variant="secondary" className="ml-1 text-xs">{groupForms.length}</Badge>
+                </div>
+              </button>
+
+              {openGroups[status] && (
+                <CardContent className="pt-0">
+                  {/* Desktop Table */}
+                  <div className="hidden lg:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Form</TableHead>
+                          <TableHead>Responses</TableHead>
+                          <TableHead>Last Response</TableHead>
+                          <TableHead>Created</TableHead>
+                          <TableHead className="w-[50px]"></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {groupForms.map((form) => (
+                          <TableRow
+                            key={form.id}
+                            className="cursor-pointer hover:bg-gray-50 transition-colors"
+                            onClick={() => { if (canViewResponses) handleViewResponses(form.id); }}
+                          >
+                            <TableCell>
+                              <div>
+                                <p className="font-medium break-words">{form.title}</p>
+                                <p className="text-sm text-gray-500 break-words">{form.description}</p>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {form.tags.map((tag) => (
+                                    <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Users className="w-4 h-4 text-gray-400" />
+                                {form.responseCount}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Calendar className="w-4 h-4 text-gray-400" />
+                                {form.lastResponseAt
+                                  ? new Date(form.lastResponseAt).toLocaleDateString()
+                                  : 'None'
+                                }
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {new Date(form.createdAt).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell>
+                              {renderFormActions(form)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Mobile Card View */}
+                  <div className="lg:hidden space-y-3">
+                    {groupForms.map((form) => (
+                      <div
+                        key={form.id}
+                        className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition-colors"
                         onClick={() => { if (canViewResponses) handleViewResponses(form.id); }}
                       >
-                        <TableCell>
-                          <div>
-                            <p className="font-medium break-words">{form.title}</p>
-                            <p className="text-sm text-gray-500 break-words">{form.description}</p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {form.tags.map((tag) => (
-                                <Badge key={tag} variant="outline" className="text-xs">
-                                  {tag}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getStatusColor(form.status)}>
-                            {form.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Users className="w-4 h-4 text-gray-400" />
-                            {form.responseCount}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-4 h-4 text-gray-400" />
-                            {form.lastResponseAt
-                              ? new Date(form.lastResponseAt).toLocaleDateString()
-                              : 'None'
-                            }
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(form.createdAt).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button 
-                                  variant="ghost" 
-                                  className="h-8 w-8 p-0"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleViewForm(form.id); }}>
-                                <Eye className="mr-2 h-4 w-4" />
-                                Preview Form
-                              </DropdownMenuItem>
-                              {canEditForms && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditForm(form.id); }}>
-                                  <Edit className="mr-2 h-4 w-4" />
-                                  Edit Form
-                                </DropdownMenuItem>
-                              )}
-                              {canViewResponses && form.responseCount > 0 && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleViewResponses(form.id); }}>
-                                  <BarChart3 className="mr-2 h-4 w-4" />
-                                  View Responses ({form.responseCount})
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuSeparator />
-                              {form.status === 'PUBLISHED' && canViewForms && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleShareForm(form); }}>
-                                <Share2 className="mr-2 h-4 w-4" />
-                                Share Link
-                              </DropdownMenuItem>
-                              )}
-                              {canCreateForms && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicateForm(form); }}>
-                                  <Copy className="mr-2 h-4 w-4" />
-                                  Duplicate
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuSeparator />
-                              {(form.status === 'PUBLISHED' || form.status === 'DRAFT') && canEditForms && (
-                                <>
-                                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleArchiveForm(form); }}>
-                                    <Archive className="mr-2 h-4 w-4" />
-                                    Archive
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDisableForm(form); }}>
-                                    <XCircle className="mr-2 h-4 w-4" />
-                                    Disable
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                              {(form.status === 'ARCHIVED' || form.status === 'CLOSED') && canEditForms && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRestoreForm(form); }}>
-                                  <RotateCcw className="mr-2 h-4 w-4" />
-                                  Restore
-                                </DropdownMenuItem>
-                              )}
-                              <DropdownMenuSeparator />
-                              {canDeleteForms && (
-                                <DropdownMenuItem 
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteForm(form); }}
-                                  className="text-red-600"
-                                >
-                                  <Trash2 className="mr-2 h-4 w-4" />
-                                  Delete
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Mobile Card View */}
-              <div className="lg:hidden space-y-4">
-                {filteredForms.map((form) => (
-                  <Card 
-                    key={form.id} 
-                    className="w-full cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={() => { if (canViewResponses) handleViewResponses(form.id); }}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex flex-col space-y-3">
                         <div className="flex justify-between items-start">
                           <div className="flex-1 min-w-0">
                             <h3 className="font-medium text-base break-words">{form.title}</h3>
                             <p className="text-sm text-gray-500 break-words">{form.description}</p>
                           </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button 
-                                variant="ghost" 
-                                className="h-8 w-8 p-0 flex-shrink-0 ml-2"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleViewForm(form.id); }}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Preview Form
-                            </DropdownMenuItem>
-                            {canEditForms && (
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditForm(form.id); }}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                Edit Form
-                              </DropdownMenuItem>
-                            )}
-                            {canViewResponses && form.responseCount > 0 && (
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleViewResponses(form.id); }}>
-                                <BarChart3 className="mr-2 h-4 w-4" />
-                                View Responses ({form.responseCount})
-                              </DropdownMenuItem>
-                            )}
-                              <DropdownMenuSeparator />
-                            {form.status === 'PUBLISHED' && canViewForms && (
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleShareForm(form); }}>
-                                <Share2 className="mr-2 h-4 w-4" />
-                                Share Link
-                              </DropdownMenuItem>
-                              )}
-                            {canCreateForms && (
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicateForm(form); }}>
-                                <Copy className="mr-2 h-4 w-4" />
-                                Duplicate
-                              </DropdownMenuItem>
-                            )}
-                              <DropdownMenuSeparator />
-                            {(form.status === 'PUBLISHED' || form.status === 'DRAFT') && canEditForms && (
-                              <>
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleArchiveForm(form); }}>
-                                  <Archive className="mr-2 h-4 w-4" />
-                                  Archive
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDisableForm(form); }}>
-                                  <XCircle className="mr-2 h-4 w-4" />
-                                  Disable
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                            {(form.status === 'ARCHIVED' || form.status === 'CLOSED') && canEditForms && (
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRestoreForm(form); }}>
-                                <RotateCcw className="mr-2 h-4 w-4" />
-                                Restore
-                              </DropdownMenuItem>
-                            )}
-                              <DropdownMenuSeparator />
-                            {canDeleteForms && (
-                              <DropdownMenuItem 
-                                onClick={(e) => { e.stopPropagation(); handleDeleteForm(form); }}
-                                className="text-red-600"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                              </DropdownMenuItem>
-                            )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          <div className="flex-shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
+                            {renderFormActions(form)}
+                          </div>
                         </div>
-                        
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1 mt-2">
                           {form.tags.map((tag) => (
-                            <Badge key={tag} variant="outline" className="text-xs">
-                              {tag}
-                            </Badge>
+                            <Badge key={tag} variant="outline" className="text-xs">{tag}</Badge>
                           ))}
                         </div>
-                        
-                        <div className="flex flex-col space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Status:</span>
-                            <Badge variant={getStatusColor(form.status)}>
-                              {form.status}
-                            </Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Responses:</span>
-                            <div className="flex items-center gap-1">
-                              <Users className="w-4 h-4 text-gray-400" />
-                              {form.responseCount}
-                            </div>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Last Response:</span>
-                            <div className="flex items-center gap-1">
-                              <Calendar className="w-4 h-4 text-gray-400" />
-                              <span className="text-right">
-                                {form.lastResponseAt
-                                  ? new Date(form.lastResponseAt).toLocaleDateString()
-                                  : 'None'
-                                }
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-500">Created:</span>
-                            <span>{new Date(form.createdAt).toLocaleDateString()}</span>
-                          </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-gray-500">
+                          <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {form.responseCount}</span>
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {form.lastResponseAt ? new Date(form.lastResponseAt).toLocaleDateString() : 'No responses'}
+                          </span>
+                          <span>Created {new Date(form.createdAt).toLocaleDateString()}</span>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              )}
+            </Card>
+          ));
+        })()
+      )}
 
       {/* Copy Success Popup */}
       {showCopyPopup && (

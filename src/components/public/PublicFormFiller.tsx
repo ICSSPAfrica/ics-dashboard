@@ -242,6 +242,31 @@ export function PublicFormFiller({ isEmbedded = false }: PublicFormFillerProps) 
       ...prev,
       [questionId]: value
     }));
+
+    // When a choice question changes, clear conditional answers that belong to
+    // options other than the newly selected one to avoid stale data in exports.
+    const question = form?.sections?.flatMap(s => s.questions || []).find(q => q.id === questionId);
+    if (question && (question.type === 'SINGLE_CHOICE' || question.type === 'MULTIPLE_CHOICE')) {
+      const options = (question as any).options as any[] | undefined;
+      if (options) {
+        const selectedValues = Array.isArray(value) ? value.map(String) : [String(value)];
+        const idsToRemove: string[] = [];
+        options.forEach((opt: any) => {
+          if (!opt.conditionalQuestions?.length) return;
+          const isSelected = selectedValues.includes(opt.value?.toString());
+          if (!isSelected) {
+            opt.conditionalQuestions.forEach((cq: any) => idsToRemove.push(cq.id));
+          }
+        });
+        if (idsToRemove.length > 0) {
+          setConditionalResponses(prev => {
+            const next = { ...prev };
+            idsToRemove.forEach(id => delete next[id]);
+            return next;
+          });
+        }
+      }
+    }
   };
 
   const handleConditionalChange = (questionId: string, value: any) => {

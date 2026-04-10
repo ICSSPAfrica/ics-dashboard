@@ -377,11 +377,7 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
       `Overdue Cases (>7 days),${metrics.overdueCases}`,
       `Escalated Count,${metrics.escalatedCount}`,
       '',
-      trendLabel,
-      `Submissions Change,${trends.submissions.change}%`,
-      `Resolution Time Change,${trends.resolutionTime.change.toFixed(1)}%`,
-      `Escalation Change,${trends.escalations.change}%`,
-      '',
+    
       'Status Breakdown',
       `Submitted,${filteredSubmissions.filter(s => s.status === 'SUBMITTED').length}`,
       `Acknowledged,${filteredSubmissions.filter(s => s.status === 'ACKNOWLEDGED').length}`,
@@ -390,23 +386,7 @@ export function FeedbackResolutionDashboard({ projectId }: FeedbackResolutionDas
       `Closed,${filteredSubmissions.filter(s => s.status === 'CLOSED').length}`,
       `Escalated,${filteredSubmissions.filter(s => s.status === 'ESCALATED').length}`,
       '',
-      'Team Workload (active cases)',
-      'Team Member,Active Cases',
-      ...Object.entries(metrics.teamWorkload)
-        .sort(([, a], [, b]) => b - a)
-        .map(([memberId, count]) => `"${resolveUserName(memberId)}",${count}`),
-      '',
-      'All Submissions',
-      'Title,Status,Priority,Submitted,Completed,Assigned To',
-      ...filteredSubmissions
-        .sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
-        .map(s => {
-          const title = (s.data?.title || s.data?.description || s.category?.name || 'Feedback').replace(/"/g, '""');
-          const completed = getCompletionDate(s);
-          const completedStr = completed ? completed.toISOString() : '';
-          const assignee = s.assignedTo ? resolveUserName(s.assignedTo).replace(/"/g, '""') : '';
-          return `"${title}",${s.status},${s.priority},${new Date(s.submittedAt).toISOString()},${completedStr},"${assignee}"`;
-        })
+      
     ];
     const csv = rows.join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

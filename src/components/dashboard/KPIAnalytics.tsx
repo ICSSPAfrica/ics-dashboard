@@ -88,16 +88,16 @@ export function KPIAnalytics() {
   return (
     <div className="flex flex-col space-y-8 overflow-x-hidden w-full">
       {/* Header with outcome filter */}
-      <div className="flex flex-col md:flex-row md:items-center md:gap-4 mb-4 w-full max-w-full">
-        <div className="flex-1">
-          <h1 className="text-3xl font-bold text-foreground break-words whitespace-normal">{projectName} KPI Analytics</h1>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col gap-3 mb-4 w-full">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{projectName} KPI Analytics</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Key performance indicators for {projectName}, grouped by outcome
           </p>
         </div>
         {outcomes.length > 0 && (
           <select
-            className="border rounded px-3 py-2 text-base min-w-0 w-full md:w-auto"
+            className="border rounded px-3 py-2 text-sm w-full md:max-w-xs"
             value={selectedOutcome || ''}
             onChange={e => setSelectedOutcome(e.target.value || undefined)}
           >
