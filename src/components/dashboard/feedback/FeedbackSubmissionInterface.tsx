@@ -106,6 +106,8 @@ export function FeedbackSubmissionInterface({
           sex: formData.sex,
           age: formData.age,
           phone: formData.phone,
+            country: formData.country,
+            region: formData.region,
           county: formData.county,
           subCounty: formData.subCounty,
           village: formData.village,
@@ -184,15 +186,15 @@ export function FeedbackSubmissionInterface({
             <div className="flex items-center gap-3 p-3 bg-red-50 rounded-lg">
               <Phone className="w-5 h-5 text-red-600 shrink-0" />
               <div>
-                <p className="font-medium">Emergency</p>
-                <p className="text-sm text-muted-foreground">+1 (555) 911-HELP</p>
+                <p className="font-medium">Toll free line</p>
+                <p className="text-sm text-muted-foreground">0800 721 402</p>
               </div>
             </div>
             <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
               <Mail className="w-5 h-5 text-blue-600 shrink-0" />
               <div>
-                <p className="font-medium">Feedback / General</p>
-                <p className="text-sm text-muted-foreground">feedback@ics-program.org</p>
+                <p className="font-medium">Feedback / Complaints</p>
+                <p className="text-sm text-muted-foreground">complaints.info@icsafrica.org</p>
               </div>
             </div>
           </div>

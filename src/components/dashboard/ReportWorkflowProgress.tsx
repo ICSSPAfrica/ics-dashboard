@@ -31,7 +31,9 @@ interface ReportWorkflowProgressProps {
 }
 
 export function ReportWorkflowProgress({ workflow }: ReportWorkflowProgressProps) {
-  const steps = workflow.approvalSteps || [];
+  const steps = [...(workflow.approvalSteps || [])].sort(
+    (a, b) => (a.stepOrder ?? 0) - (b.stepOrder ?? 0)
+  );
   const currentStepIndex = steps.findIndex((s) => !s.isCompleted);
   const currentStep = currentStepIndex >= 0 ? currentStepIndex : steps.length;
   const completedSteps = steps.filter((s) => s.isCompleted).length;
@@ -236,7 +238,9 @@ export function ReportWorkflowProgress({ workflow }: ReportWorkflowProgressProps
             <div>
               <span className="text-muted-foreground">Current Step: </span>
               <span className="font-medium">
-                {currentStep < steps.length ? `Step ${currentStep + 1}` : 'Completed'}
+                {currentStep < steps.length && steps[currentStep]
+                  ? `Step ${steps[currentStep].stepOrder}`
+                  : 'Completed'}
               </span>
             </div>
           </div>

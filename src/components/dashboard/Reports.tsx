@@ -37,6 +37,7 @@ export function Reports() {
   
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedFrequency, setSelectedFrequency] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedReportType, setSelectedReportType] = useState<string>('all');
   const [selectedTimeRange, setSelectedTimeRange] = useState<string>('all');
   const [selectedActivity, setSelectedActivity] = useState<string>('all');
@@ -176,7 +177,9 @@ export function Reports() {
     const category = (workflow.category || 'ADHOC').toString().toLowerCase();
     
     // Get current step info
-    const steps = Array.isArray(workflow.approvalSteps) ? workflow.approvalSteps : [];
+    const steps = Array.isArray(workflow.approvalSteps)
+      ? [...workflow.approvalSteps].sort((a: any, b: any) => (a.stepOrder ?? 0) - (b.stepOrder ?? 0))
+      : [];
     const currentStepIndex = steps.findIndex((s: any) => !s.isCompleted);
     const currentStep = currentStepIndex >= 0 ? currentStepIndex + 1 : steps.length;
 
@@ -263,13 +266,6 @@ export function Reports() {
 
   // Filtering logic with proper case handling
   const filteredReports = displayReports.filter(report => {
-    // Exclude reports that are pending review - they should only show in PendingReviews component
-    const workflowStatus = (report.approvalWorkflow?.status || report.status || '').toString().toUpperCase();
-    const isPendingReview = workflowStatus === 'PENDING' || workflowStatus === 'IN_REVIEW' || workflowStatus === 'CHANGES_REQUESTED';
-    if (isPendingReview) {
-      return false; // Filter out pending reviews from main list
-    }
-
     // Normalize category for comparison (backend uses uppercase, frontend uses lowercase)
     const reportCategory = (report.category || '').toLowerCase();
     const selectedFreq = selectedFrequency.toLowerCase();
@@ -278,6 +274,12 @@ export function Reports() {
     // Frequency/Category filter - normalize case
     const frequencyMatch = selectedFreq === 'all' || reportCategory === selectedFreq;
     const categoryMatch = selectedCat === 'all' || reportCategory === selectedCat;
+
+    // Workflow/file status filter
+    const reportStatus = ((report as any).approvalWorkflow?.status || report.status || '')
+      .toString()
+      .toUpperCase();
+    const statusMatch = selectedStatus === 'all' || reportStatus === selectedStatus;
     
     // Report type filter - check naming convention or name
     let reportTypeMatch = true;
@@ -313,7 +315,7 @@ export function Reports() {
       }
     }
 
-    return frequencyMatch && reportTypeMatch && activityMatch && categoryMatch && timeMatch;
+    return frequencyMatch && reportTypeMatch && activityMatch && categoryMatch && statusMatch && timeMatch;
   });
 
 
@@ -672,6 +674,22 @@ export function Reports() {
             </SelectContent>
           </Select>
 
+          {/* Status Filter */}
+          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              <SelectItem value="PENDING">Pending</SelectItem>
+              <SelectItem value="IN_REVIEW">In Review</SelectItem>
+              <SelectItem value="CHANGES_REQUESTED">Changes Requested</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
+              <SelectItem value="CANCELLED">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+
           {/* Time Range Filter */}
           <Select value={selectedTimeRange} onValueChange={setSelectedTimeRange}>
             <SelectTrigger className="w-full sm:w-40">
@@ -710,6 +728,7 @@ export function Reports() {
             size="sm"
             onClick={() => {
               setSelectedFrequency('all');
+              setSelectedStatus('all');
               setSelectedReportType('all');
               setSelectedActivity('all');
               setSelectedCategory('all');
@@ -724,11 +743,12 @@ export function Reports() {
         {/* Filter Summary */}
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Showing {filteredReports.length} of {reports.length} reports
-            {(selectedFrequency !== 'all' || selectedReportType !== 'all' || selectedActivity !== 'all' || selectedTimeRange !== 'all') && (
+            Showing {filteredReports.length} of {displayReports.length} reports
+            {(selectedFrequency !== 'all' || selectedStatus !== 'all' || selectedReportType !== 'all' || selectedActivity !== 'all' || selectedTimeRange !== 'all') && (
               <span className="ml-2">
                 • Filtered by: 
                 {selectedFrequency !== 'all' && <span className="ml-1 font-medium">{selectedFrequency}</span>}
+                {selectedStatus !== 'all' && <span className="ml-1 font-medium">{selectedStatus.replace(/_/g, ' ').toLowerCase()}</span>}
                 {selectedReportType !== 'all' && <span className="ml-1 font-medium">{REPORT_TYPES.find(t => t.code === selectedReportType)?.name}</span>}
                 {selectedActivity !== 'all' && <span className="ml-1 font-medium">{activities.find(a => a.id === selectedActivity)?.title || activities.find(a => a.id === selectedActivity)?.name}</span>}
                 {selectedTimeRange !== 'all' && <span className="ml-1 font-medium">{selectedTimeRange}</span>}

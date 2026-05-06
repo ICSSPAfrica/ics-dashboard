@@ -55,6 +55,7 @@
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.3.0",
     "file-saver": "^2.0.5",
+    "i18n-iso-countries": "^7.14.0",
     "input-otp": "^1.2.4",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.446.0",

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import countries from 'i18n-iso-countries';
+import enLocale from 'i18n-iso-countries/langs/en.json';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +26,10 @@ interface FeedbackComplaintFormProps {
 }
 
 const SOP_CATEGORIES: SopCategory[] = [1, 2, 3, 4, 5, 6, 7, 8];
+countries.registerLocale(enLocale);
+
+const SUPPORTED_COUNTRY_CODES = ['KE', 'TZ', 'CI'] as const;
+const SECONDARY_LOCATION_OPTIONS = ['Region', 'Province', 'Wilaya'] as const;
 
 export function FeedbackComplaintForm({
   onSubmit,
@@ -37,6 +43,8 @@ export function FeedbackComplaintForm({
     sex: '' as '' | 'male' | 'female',
     age: '' as '' | 'child' | 'adult',
     phone: '',
+    country: '' as '' | (typeof SUPPORTED_COUNTRY_CODES)[number],
+    region: '',
     county: '',
     subCounty: '',
     village: '',
@@ -51,6 +59,12 @@ export function FeedbackComplaintForm({
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: '' }));
   };
+
+  const countryOptions = SUPPORTED_COUNTRY_CODES.map((code) => ({
+    code,
+    label: countries.getName(code, 'en') ?? code,
+  }));
+  const regionOptions = SECONDARY_LOCATION_OPTIONS;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -83,6 +97,8 @@ export function FeedbackComplaintForm({
       ...formData,
       date: now.toISOString().slice(0, 10),
       time: now.toTimeString().slice(0, 5),
+      county: formData.region || formData.county,
+      subCounty: formData.subCounty,
       submitterName: formData.name.trim() || undefined,
       submitterEmail: undefined,
       stakeholderType: formData.isCommunityFacilitator ? 'community_facilitator' : undefined,
@@ -185,18 +201,57 @@ export function FeedbackComplaintForm({
             Location (optional)
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="county">County</Label>
-            <Input
-              id="county"
-              value={formData.county}
-              onChange={(e) => handleChange('county', e.target.value)}
-              placeholder="Optional"
-            />
+            <Label>Country</Label>
+            <Select
+              value={formData.country}
+              onValueChange={(v) => {
+                const nextCountry = v as (typeof SUPPORTED_COUNTRY_CODES)[number];
+                setFormData((prev) => ({
+                  ...prev,
+                  country: nextCountry,
+                }));
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select country" />
+              </SelectTrigger>
+              <SelectContent>
+                {countryOptions.map((country) => (
+                  <SelectItem key={country.code} value={country.code}>
+                    {country.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="subCounty">Sub County</Label>
+            <Label>Region / Province / Wilaya</Label>
+            <Select
+              value={formData.region}
+              onValueChange={(v) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  region: v,
+                  county: v,
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select one" />
+              </SelectTrigger>
+              <SelectContent>
+                {regionOptions.map((region) => (
+                  <SelectItem key={region} value={region}>
+                    {region}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="subCounty">Sub region / District</Label>
             <Input
               id="subCounty"
               value={formData.subCounty}
@@ -205,9 +260,8 @@ export function FeedbackComplaintForm({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="village">Village</Label>
+            <Label htmlFor="village">Village / Ward</Label>
             <Input
-              id="village"
               value={formData.village}
               onChange={(e) => handleChange('village', e.target.value)}
               placeholder="Optional"

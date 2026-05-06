@@ -327,7 +327,9 @@ export function PendingReviews({ projectId, refreshTrigger }: PendingReviewsProp
                   {pendingReviews.map((report) => {
                     const status = (report.status || report.workflowStatus || '').toString().toLowerCase();
                     const category = (report.category || '').toString().toLowerCase();
-                    const steps = Array.isArray(report.approvalSteps) ? report.approvalSteps : [];
+                    const steps = Array.isArray(report.approvalSteps)
+                      ? [...report.approvalSteps].sort((a: any, b: any) => (a.stepOrder ?? 0) - (b.stepOrder ?? 0))
+                      : [];
                     const totalSteps = steps.length || 1;
                     const currentStepIndex = steps.findIndex((s: any) => !s.isCompleted);
                     const currentStep = currentStepIndex >= 0 ? currentStepIndex + 1 : totalSteps;
@@ -443,7 +445,9 @@ export function PendingReviews({ projectId, refreshTrigger }: PendingReviewsProp
                   {submittedPendingReview.map((report) => {
                     const status = (report.status || report.workflowStatus || '').toString().toLowerCase();
                     const category = (report.category || '').toString().toLowerCase();
-                    const steps = Array.isArray(report.approvalSteps) ? report.approvalSteps : [];
+                    const steps = Array.isArray(report.approvalSteps)
+                      ? [...report.approvalSteps].sort((a: any, b: any) => (a.stepOrder ?? 0) - (b.stepOrder ?? 0))
+                      : [];
                     const totalSteps = steps.length || 1;
                     const currentStepIndex = steps.findIndex((s: any) => !s.isCompleted);
                     const currentStep = currentStepIndex >= 0 ? currentStepIndex + 1 : totalSteps;

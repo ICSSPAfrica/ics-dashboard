@@ -113,10 +113,14 @@ export function ReportWorkflowDetail({ reportId, onClose, onChanged }: ReportWor
     return null;
   }
 
-  const steps = Array.isArray(report.approvalSteps) ? report.approvalSteps : [];
+  const steps = Array.isArray(report.approvalSteps)
+    ? [...report.approvalSteps].sort((a: any, b: any) => (a.stepOrder ?? 0) - (b.stepOrder ?? 0))
+    : [];
   const totalSteps = steps.length || 1;
   const currentIndex = steps.findIndex((s: any) => !s.isCompleted);
-  const currentStep = currentIndex >= 0 ? currentIndex + 1 : totalSteps;
+  const currentStepOrder =
+    currentIndex >= 0 && steps[currentIndex] ? (steps[currentIndex] as any).stepOrder : null;
+  const currentStep = currentStepOrder ?? totalSteps;
 
   const statusColor = (status: string) => {
     const s = (status || '').toUpperCase();
