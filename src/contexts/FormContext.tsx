@@ -1034,7 +1034,7 @@ export function FormProvider({ children }: FormProviderProps) {
 
   const removeMediaFile = useCallback(async (projectId: string, formId: string, fileId: string): Promise<boolean> => {
     try {
-      await formsApi.deleteMediaFile(projectId, formId, fileId);
+      await formsApi.deleteMediaFile(projectId, fileId);
       
       // Update local cache
       setMediaFiles(prev => prev.filter(f => f.id !== fileId));

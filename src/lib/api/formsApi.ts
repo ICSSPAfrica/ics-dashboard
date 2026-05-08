@@ -408,11 +408,27 @@ export const formsApi = {
     return [];
   },
 
-  async deleteMediaFile(projectId: string, formId: string, mediaId: string): Promise<void> {
-    const response = await apiClient.delete(`/forms/projects/${projectId}/forms/${formId}/media/${mediaId}`);
+  async deleteMediaFile(projectId: string, mediaId: string): Promise<void> {
+    const response = await apiClient.delete(`/forms/projects/${projectId}/media/${mediaId}`);
     if (!response.success) {
       throw new Error(response.error || 'Failed to delete media file');
     }
+  },
+
+  async addProjectMediaLink(
+    projectId: string,
+    payload: { url: string; title?: string; description?: string; tags?: string }
+  ): Promise<any> {
+    const response = await apiClient.post(`/forms/projects/${projectId}/media/link`, {
+      url: payload.url,
+      title: payload.title,
+      description: payload.description,
+      tags: payload.tags,
+    });
+    if (response.success && response.data) {
+      return response.data;
+    }
+    throw new Error(response.error || 'Failed to add media link');
   },
 
   async updateMediaFileMetadata(projectId: string, formId: string, mediaId: string, updates: any): Promise<any> {

@@ -11,6 +11,14 @@ import { useForm } from '@/contexts/FormContext';
 import { useProjects } from '@/contexts/ProjectsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { generateMediaFileName, createMediaNamingData, getMediaTypeFromExtension } from '@/lib/mediaNamingConvention';
+import { apiClient } from '@/lib/api/client';
+
+function resolveMediaUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = apiClient.getBaseUrl().replace(/\/api\/v1\/?$/, '');
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
 
 interface MediaUploadQuestionRendererProps {
   question: FormQuestion;
@@ -994,7 +1002,7 @@ export function MediaUploadQuestionRenderer({
               // Handle both File objects (legacy) and file data objects (new)
               const fileName = fileData.name || fileData.fileName || 'Unknown file';
               const fileSize = fileData.size || fileData.fileSize || 0;
-              const fileUrl = fileData.url;
+              const fileUrl = fileData.url ? resolveMediaUrl(fileData.url) : undefined;
               const hasUploadError = fileData.uploadError;
               
               return (

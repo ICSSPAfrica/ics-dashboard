@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { Image, Video, Upload, Download, Eye, Trash2, Plus, Play, FileImage, Search, Filter, Calendar, User, File, FileVideo, FileAudio } from 'lucide-react';
+import { Image, Video, Upload, Download, Eye, Trash2, Plus, Play, FileImage, Search, Filter, Calendar, User, File, FileVideo, FileAudio, Link2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,10 +9,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formsApi } from '@/lib/api/formsApi';
+import { apiClient } from '@/lib/api/client';
 import { formatFileSize } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+
+/** Turn a potentially-relative media URL into an absolute one pointing at the API server. */
+function resolveMediaUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  // Relative URL like /uploads/media/file.jpg — prepend the API base (strip /api/v1 suffix)
+  const base = apiClient.getBaseUrl().replace(/\/api\/v1\/?$/, '');
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
 
 interface MediaFile {
   id: string;
@@ -25,7 +36,7 @@ interface MediaFile {
   uploadedAt: string;
   uploadedBy?: string;
   metadata: {
-    mediaType: 'image' | 'video' | 'audio' | 'file';
+    mediaType: 'image' | 'video' | 'audio' | 'file' | 'link';
     tags?: string[];
     description?: string;
     location?: {
@@ -43,7 +54,7 @@ interface MediaFile {
     projectName?: string;
     projectId?: string;
     country?: string;
-    uploadedVia?: string; // Added to track upload method
+    uploadedVia?: string; // 'direct-upload' | 'external-link' | etc.
   };
   form?: {
     id: string;
@@ -69,12 +80,17 @@ export function Media() {
   const [selectedQuestionType, setSelectedQuestionType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploadTab, setUploadTab] = useState<'file' | 'link'>('file');
   const [selectedMedia, setSelectedMedia] = useState<MediaFile | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLTextAreaElement>(null);
   const tagsRef = useRef<HTMLInputElement>(null);
+  const linkUrlRef = useRef<HTMLInputElement>(null);
+  const linkTitleRef = useRef<HTMLInputElement>(null);
+  const linkDescRef = useRef<HTMLTextAreaElement>(null);
+  const linkTagsRef = useRef<HTMLInputElement>(null);
 
   // Load media from database
   useEffect(() => {
@@ -106,6 +122,7 @@ export function Media() {
     if (searchQuery) {
       filtered = filtered.filter(item => 
         item.originalName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.url.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.metadata.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.metadata.tags?.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())) ||
         item.metadata.formName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -136,6 +153,17 @@ export function Media() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const resetUploadDialog = () => {
+    setUploadTab('file');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (descRef.current) descRef.current.value = '';
+    if (tagsRef.current) tagsRef.current.value = '';
+    if (linkUrlRef.current) linkUrlRef.current.value = '';
+    if (linkTitleRef.current) linkTitleRef.current.value = '';
+    if (linkDescRef.current) linkDescRef.current.value = '';
+    if (linkTagsRef.current) linkTagsRef.current.value = '';
   };
 
   // Upload handler - Note: This would need to be integrated with form uploads
@@ -192,11 +220,7 @@ export function Media() {
       await loadMediaFiles();
       
       setUploadDialogOpen(false);
-      
-      // Reset form
-      if (fileInput) fileInput.value = '';
-      if (descRef.current) descRef.current.value = '';
-      if (tagsRef.current) tagsRef.current.value = '';
+      resetUploadDialog();
       
     } catch (error) {
       console.error('❌ Upload failed:', error);
@@ -208,26 +232,108 @@ export function Media() {
     }
   };
 
+  const handleAddLink = async () => {
+    if (!projectId) {
+      toast({
+        title: "Error",
+        description: "Project ID not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const url = linkUrlRef.current?.value?.trim() || '';
+    if (!url) {
+      toast({
+        title: "Error",
+        description: "Please enter a URL",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const title = linkTitleRef.current?.value?.trim() || undefined;
+    const description = linkDescRef.current?.value?.trim() || undefined;
+    const tagsRaw = linkTagsRef.current?.value?.trim() || '';
+
+    try {
+      toast({
+        title: "Saving...",
+        description: "Adding link to project media",
+        variant: "default",
+      });
+
+      await formsApi.addProjectMediaLink(projectId, {
+        url,
+        title,
+        description,
+        tags: tagsRaw || undefined,
+      });
+
+      toast({
+        title: "Success",
+        description: "Link added to media library",
+        variant: "default",
+      });
+
+      await loadMediaFiles();
+      setUploadDialogOpen(false);
+      resetUploadDialog();
+    } catch (error) {
+      console.error('❌ Add link failed:', error);
+      toast({
+        title: "Failed",
+        description: error instanceof Error ? error.message : "Could not add link",
+        variant: "destructive",
+      });
+    }
+  };
+
   // View handler
   const handleView = (item: MediaFile) => {
     setSelectedMedia(item);
     setViewDialogOpen(true);
   };
 
-  // Download handler
-  const handleDownload = (item: MediaFile) => {
-    const link = document.createElement('a');
-    link.href = item.url;
-    link.download = item.originalName;
-    link.click();
+  // Download / open handler
+  const handleDownload = async (item: MediaFile) => {
+    if (item.metadata.mediaType === 'link' || item.metadata.uploadedVia === 'external-link') {
+      window.open(item.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const resolved = resolveMediaUrl(item.url);
+    try {
+      // Fetch as blob so the browser doesn't navigate away and the filename sticks
+      const resp = await fetch(resolved);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = item.originalName;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      // Fallback: let the browser handle it directly
+      window.open(resolved, '_blank', 'noopener,noreferrer');
+    }
   };
 
   // Delete handler
   const handleDelete = async (item: MediaFile) => {
-    if (!projectId || !item.metadata.formId) {
+    if (!projectId) {
       toast({
         title: "Error",
-        description: "Cannot delete file - missing project or form information",
+        description: "Project ID not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (item.id.startsWith('response-')) {
+      toast({
+        title: "Not supported",
+        description: "Items embedded only in form responses cannot be deleted from this screen yet.",
         variant: "destructive",
       });
       return;
@@ -235,8 +341,8 @@ export function Media() {
 
     if (confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
       try {
-        await formsApi.deleteMediaFile(projectId, item.metadata.formId, item.id);
-        await loadMediaFiles(); // Reload the media list
+        await formsApi.deleteMediaFile(projectId, item.id);
+        await loadMediaFiles();
         toast({
           title: "Success",
           description: "File deleted successfully",
@@ -260,6 +366,8 @@ export function Media() {
         return <FileVideo className="h-4 w-4 text-red-500" />;
       case 'audio':
         return <FileAudio className="h-4 w-4 text-purple-500" />;
+      case 'link':
+        return <Link2 className="h-4 w-4 text-amber-600" />;
       case 'file':
         return <File className="h-4 w-4 text-green-500" />;
       default:
@@ -275,6 +383,15 @@ export function Media() {
     return sum + item.fileSize;
   }, 0);
 
+  const isProjectLibraryOnly = (item: MediaFile) =>
+    item.metadata.uploadedVia === 'direct-upload' || item.metadata.uploadedVia === 'external-link';
+
+  const sourceLabel = (item: MediaFile) => {
+    if (item.metadata.uploadedVia === 'direct-upload') return 'Direct upload';
+    if (item.metadata.uploadedVia === 'external-link') return 'Link';
+    return 'Form response';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -282,63 +399,120 @@ export function Media() {
           <h1 className="text-3xl font-bold text-foreground">Media Library</h1>
           <p className="text-muted-foreground">Manage project images, videos, and documents</p>
         </div>
-        <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <Dialog
+          open={uploadDialogOpen}
+          onOpenChange={(open) => {
+            setUploadDialogOpen(open);
+            if (!open) resetUploadDialog();
+          }}
+        >
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
-              Upload Media
+              Add media
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Upload Media File</DialogTitle>
+              <DialogTitle>Add media</DialogTitle>
               <DialogDescription>
-                Upload images, videos, or documents to the project media library
+                Upload a file or add an external link. Everything is stored under this project.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="file">File</Label>
-                <Input 
-                  id="file" 
-                  type="file" 
-                  accept="image/*,video/*,.pdf,.doc,.docx" 
-                  className="cursor-pointer"
-                  ref={fileInputRef}
-                />
-              </div>
-              <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea 
-                  id="description" 
-                  placeholder="Enter media description..." 
-                  className="resize-none"
-                  ref={descRef}
-                />
-              </div>
-              <div>
-                <Label htmlFor="tags">Tags (comma-separated)</Label>
-                <Input 
-                  id="tags" 
-                  placeholder="e.g., training, children, rights" 
-                  ref={tagsRef}
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setUploadDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleUpload}>
-                  Upload
-                </Button>
-              </div>
-            </div>
+            <Tabs value={uploadTab} onValueChange={(v) => setUploadTab(v as 'file' | 'link')}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="file">Upload file</TabsTrigger>
+                <TabsTrigger value="link">Add link</TabsTrigger>
+              </TabsList>
+              <TabsContent value="file" className="space-y-4 mt-4">
+                <div>
+                  <Label htmlFor="file">File</Label>
+                  <Input 
+                    id="file" 
+                    type="file" 
+                    accept="image/*,video/*,.pdf,.doc,.docx" 
+                    className="cursor-pointer"
+                    ref={fileInputRef}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea 
+                    id="description" 
+                    placeholder="Enter media description..." 
+                    className="resize-none"
+                    ref={descRef}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="tags">Tags (comma-separated)</Label>
+                  <Input 
+                    id="tags" 
+                    placeholder="e.g., training, children, rights" 
+                    ref={tagsRef}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setUploadDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleUpload}>
+                    Upload
+                  </Button>
+                </div>
+              </TabsContent>
+              <TabsContent value="link" className="space-y-4 mt-4">
+                <div>
+                  <Label htmlFor="link-url">URL</Label>
+                  <Input
+                    id="link-url"
+                    type="url"
+                    placeholder="https://example.com/image.jpg"
+                    ref={linkUrlRef}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="link-title">Title (optional)</Label>
+                  <Input
+                    id="link-title"
+                    placeholder="Short label for this link"
+                    ref={linkTitleRef}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="link-description">Description</Label>
+                  <Textarea
+                    id="link-description"
+                    placeholder="What is this link for?"
+                    className="resize-none"
+                    ref={linkDescRef}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="link-tags">Tags (comma-separated)</Label>
+                  <Input
+                    id="link-tags"
+                    placeholder="e.g., training, partner-site"
+                    ref={linkTagsRef}
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setUploadDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddLink}>
+                    Save link
+                  </Button>
+                </div>
+              </TabsContent>
+            </Tabs>
           </DialogContent>
         </Dialog>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Files</CardTitle>
@@ -364,6 +538,16 @@ export function Media() {
           <CardContent>
             <div className="text-2xl font-bold">
               {filteredMedia.filter(item => item.metadata.mediaType === 'video').length}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Links</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {filteredMedia.filter(item => item.metadata.mediaType === 'link').length}
             </div>
           </CardContent>
         </Card>
@@ -398,6 +582,7 @@ export function Media() {
             <SelectItem value="video">Videos</SelectItem>
             <SelectItem value="audio">Audio</SelectItem>
             <SelectItem value="file">Files</SelectItem>
+            <SelectItem value="link">Links</SelectItem>
           </SelectContent>
         </Select>
         {uniqueForms.length > 0 && (
@@ -471,9 +656,9 @@ export function Media() {
                     <TableRow key={item.id} className="hover:bg-muted/50">
                       <TableCell>
                         <div className="flex items-center">
-                          {getMediaIcon(item.metadata.mediaType)}
+                          {getMediaIcon(item.metadata?.mediaType || 'file')}
                           <Badge variant="outline" className="ml-2 text-xs">
-                            {item.metadata.mediaType}
+                            {item.metadata?.mediaType || 'file'}
                           </Badge>
                         </div>
                       </TableCell>
@@ -482,6 +667,11 @@ export function Media() {
                           <div className="font-medium truncate max-w-[200px]" title={item.originalName}>
                             {item.originalName}
                           </div>
+                          {item.metadata.mediaType === 'link' && (
+                            <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={item.url}>
+                              {item.url}
+                            </div>
+                          )}
                           {item.metadata.description && (
                             <div className="text-xs text-muted-foreground truncate max-w-[200px]" title={item.metadata.description}>
                               {item.metadata.description}
@@ -505,7 +695,7 @@ export function Media() {
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          {item.metadata.uploadedVia === 'direct-upload' ? (
+                          {isProjectLibraryOnly(item) ? (
                             <div className="text-sm text-muted-foreground">N/A</div>
                           ) : (
                             <>
@@ -521,7 +711,7 @@ export function Media() {
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          {item.metadata.uploadedVia === 'direct-upload' ? (
+                          {isProjectLibraryOnly(item) ? (
                             <div className="text-sm text-muted-foreground">N/A</div>
                           ) : (
                             <>
@@ -538,7 +728,9 @@ export function Media() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">{formatFileSize(item.fileSize)}</span>
+                        <span className="text-sm">
+                          {item.fileSize > 0 ? formatFileSize(item.fileSize) : '—'}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <div className="space-y-1">
@@ -552,8 +744,11 @@ export function Media() {
                         <span className="text-sm">{item.uploadedBy || 'Unknown'}</span>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={item.metadata.uploadedVia === 'direct-upload' ? 'default' : 'secondary'} className="text-xs">
-                          {item.metadata.uploadedVia === 'direct-upload' ? 'Direct Upload' : 'Form Response'}
+                        <Badge
+                          variant={isProjectLibraryOnly(item) ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {sourceLabel(item)}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -570,7 +765,7 @@ export function Media() {
                             variant="ghost" 
                             size="sm" 
                             onClick={() => handleDownload(item)}
-                            title="Download"
+                            title={item.metadata.mediaType === 'link' ? 'Open link' : 'Download'}
                           >
                             <Download className="h-4 w-4" />
                           </Button>
@@ -579,7 +774,8 @@ export function Media() {
                             size="sm" 
                             onClick={() => handleDelete(item)}
                             title="Delete"
-                            className="text-red-600 hover:text-red-700"
+                            disabled={item.id.startsWith('response-')}
+                            className="text-red-600 hover:text-red-700 disabled:opacity-40"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -605,26 +801,39 @@ export function Media() {
                   <DialogDescription>{selectedMedia.metadata.description}</DialogDescription>
                 )}
               </DialogHeader>
+              {selectedMedia.metadata.mediaType === 'link' && (
+                <div className="rounded-lg border bg-muted/40 p-4 space-y-3">
+                  <p className="text-sm break-all">{selectedMedia.url}</p>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={selectedMedia.url} target="_blank" rel="noopener noreferrer">
+                      Open in new tab
+                    </a>
+                  </Button>
+                </div>
+              )}
               {selectedMedia.metadata.mediaType === 'image' && (
-                <img src={selectedMedia.url} alt={selectedMedia.originalName} className="w-full max-h-[400px] object-contain rounded" />
+                <img src={resolveMediaUrl(selectedMedia.url)} alt={selectedMedia.originalName} className="w-full max-h-[400px] object-contain rounded" />
               )}
               {selectedMedia.metadata.mediaType === 'video' && (
-                <video src={selectedMedia.url} controls className="w-full max-h-[400px] rounded" />
+                <video src={resolveMediaUrl(selectedMedia.url)} controls className="w-full max-h-[400px] rounded" />
               )}
               {selectedMedia.metadata.mediaType === 'audio' && (
-                <audio src={selectedMedia.url} controls className="w-full" />
+                <audio src={resolveMediaUrl(selectedMedia.url)} controls className="w-full" />
               )}
               {(selectedMedia.metadata.mediaType === 'file') && (
                 <div className="text-center py-8">
                   <File className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
                   <p className="text-muted-foreground mb-4">Preview not available for this file type</p>
-                  <a href={selectedMedia.url} download={selectedMedia.originalName} className="text-blue-600 underline">
+                  <button
+                    onClick={() => handleDownload(selectedMedia)}
+                    className="text-blue-600 underline cursor-pointer"
+                  >
                     Download {selectedMedia.originalName}
-                  </a>
+                  </button>
                 </div>
               )}
               <div className="space-y-2 text-sm text-muted-foreground">
-                <p><strong>File Size:</strong> {formatFileSize(selectedMedia.fileSize)}</p>
+                <p><strong>File Size:</strong> {selectedMedia.fileSize > 0 ? formatFileSize(selectedMedia.fileSize) : '—'}</p>
                 <p><strong>Uploaded:</strong> {new Date(selectedMedia.uploadedAt).toLocaleString()}</p>
                 {selectedMedia.uploadedBy && <p><strong>Uploaded by:</strong> {selectedMedia.uploadedBy}</p>}
                 {selectedMedia.metadata.formName && <p><strong>From Form:</strong> {selectedMedia.metadata.formName}</p>}
@@ -656,9 +865,10 @@ export function Media() {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => handleDownload(selectedMedia)}>
-                  <Download className="h-4 w-4" /> Download
+                  <Download className="h-4 w-4" />{' '}
+                  {selectedMedia.metadata.mediaType === 'link' ? 'Open link' : 'Download'}
                 </Button>
-                <Button variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleDelete(selectedMedia)}>
+                <Button variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleDelete(selectedMedia)} disabled={selectedMedia.id.startsWith('response-')}>
                   <Trash2 className="h-4 w-4" /> Delete
                 </Button>
               </div>

@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client';
+import { saveAs } from 'file-saver';
 
 export interface ReportUploadData {
   title?: string;
@@ -99,9 +100,15 @@ class ReportService {
     if (!response.success || !response.data) {
       throw new Error(response.error || 'Failed to get download URL');
     }
-    // Navigate directly to the presigned URL instead of fetch/blob.
-    // This avoids browser CORS enforcement for XHR/fetch on cross-origin object storage.
-    window.open(response.data.presignedUrl, '_blank', 'noopener,noreferrer');
+
+    // Fetch the file from the presigned URL (requires Spaces CORS to allow this origin).
+    const fileResponse = await fetch(response.data.presignedUrl);
+    if (!fileResponse.ok) {
+      throw new Error(`Failed to download file: ${fileResponse.statusText}`);
+    }
+
+    const blob = await fileResponse.blob();
+    saveAs(blob, response.data.fileName || `report-${reportId}`);
   }
 
   async getPreviewUrl(projectId: string, reportId: string): Promise<string> {
